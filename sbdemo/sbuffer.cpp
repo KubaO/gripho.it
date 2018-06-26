@@ -253,18 +253,26 @@ public:
    Q_SIGNAL void reqMethod(int);
 };
 
+void bounce(qreal &x, qreal &v, qreal const left, qreal const right) {
+   qreal out;
+   if ((out = (x-left)) < 0 || (out = (x-right)) > 0) {
+      int n = out / (right - left);
+      x -= n * (right - left);
+      if (!(abs(n) % 2)) v = -v;
+   }
+   if ((out = (x-left)) < 0 || (out = (x-right)) > 0) {
+      x -= out*2;
+   }
+}
+
 struct State {
    QPointF pos, vel;
+   void advance(qreal t, const QRectF &rect) {
+      pos += vel * t;
+      bounce(pos.rx(), vel.rx(), rect.left(), rect.right());
+      bounce(pos.ry(), vel.ry(), rect.top(), rect.bottom());
+   }
 };
-
-State advance(State s, const QRectF &rect) {
-   s.pos += s.vel;
-   if (!rect.contains(s.pos.x(), 0))
-      s.vel.rx() *= -1;
-   if (!rect.contains(0, s.pos.y()))
-      s.vel.ry() *= -1;
-   return s;
-}
 
 int main(int argc, char *argv[])
 {
@@ -296,12 +304,15 @@ int main(int argc, char *argv[])
       if (m >= 1 && m <= painters.size()) method = m-1;
    });
 
-   QTimer t;
-   t.setInterval(10);
-   t.start();
-   QObject::connect(&t, &QTimer::timeout, [&]{
+   QTimer timer;
+   timer.setInterval(10);
+   timer.start();
+   QElapsedTimer el;
+   el.start();
+   QObject::connect(&timer, &QTimer::timeout, [&]{
+      qreal const t = el.restart() / (qreal)10;
       for (auto &s : state)
-         s = advance(s, posRect);
+         s.advance(t, posRect);
 
       auto &painter = *painters[method];
       painter.begin();
