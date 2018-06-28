@@ -5,7 +5,7 @@
 #include <i86.h>
 #include "asm_6502.h"
 
-char *dis[256] = 
+const char *dis[256] =
 {"BRK","ORAxi","?","?","?","ORAz","ASLz","?",
  "PHP","ORA#","ASLA","?","?","ORA$","ASL$","?",
  "BPLr","ORAiy","?","?","?","ORAzx","ASLzx","?",
@@ -41,7 +41,7 @@ char *dis[256] =
 
 int Disasm(int pc,char *buffer,unsigned char *p)
 {
-   char *d=dis[*p++];
+   const char *d=dis[*p++];
    sprintf(buffer,"%04X: ",pc);
    buffer+=6;
    if (strcmp(d,"?")==0)
@@ -146,7 +146,7 @@ int Disasm(int pc,char *buffer,unsigned char *p)
       sprintf(buffer+3," A");
       return 1;
    }
-   printf("Uh? (%s),d\n");
+   printf("Uh? (%s),d\n", "");
    exit(1);
 }
 
@@ -154,11 +154,10 @@ int curchar;
 
 void SpecialWrite()
 {
-   /*
-  printf("** Special write M[%04X]=%02X **\n",
-         asm_6502_info->special_ea,
-    asm_6502_info->special_value);
-*/
+   if (false)
+      printf("** Special write M[%04X]=%02X **\n",
+             asm_6502_info->special_ea,
+             asm_6502_info->special_value);
    if (asm_6502_info->special_ea==0xC010)
    {
       curchar&=0x7F;
@@ -167,12 +166,12 @@ void SpecialWrite()
 
 void SpecialRead()
 {
-   /*
-printf("** Special read M[%04X] **\n",
-         asm_6502_info->special_ea);
-  asm_6502_info->special_value=
-    asm_6502_info->address_space[asm_6502_info->special_ea];
-*/
+   if (false) {
+      printf("** Special read M[%04X] **\n",
+             asm_6502_info->special_ea);
+      asm_6502_info->special_value=
+            asm_6502_info->address_space[asm_6502_info->special_ea];
+   }
    if (asm_6502_info->special_ea==0xC000)
    {
       asm_6502_info->special_value=curchar;
@@ -183,7 +182,7 @@ printf("** Special read M[%04X] **\n",
    }
 }
 
-void main(void)
+int main()
 {
    FILE *f;
    int romsize;
@@ -240,7 +239,7 @@ void main(void)
 
 
    time=0;
-   ot=*(int *)0x46C;
+   ot=*(int *)v_m(0x46C);
    for(;;)
    {
       if (!wide)
@@ -254,11 +253,11 @@ void main(void)
             k=Disasm(pc,buf,v6502->address_space+pc);
             for (j=0; j<39 && buf[j]; j++)
             {
-               *((short *)0xB8000+i*80+41+j)=buf[j]|0x0F00;
+               *B8000(i*80+41+j)=buf[j]|0x0F00;
             }
             while (j<39)
             {
-               *((short *)0xB8000+i*80+41+j)=0x0F20;
+               *B8000(i*80+41+j)=0x0F20;
                j++;
             }
             pc+=k;
@@ -266,17 +265,17 @@ void main(void)
          sprintf(buf,"A=$%02X",v6502->A);
          for (j=0; buf[j]; j++)
          {
-            *((short *)0xB8000+75+j)=buf[j]|0x0F00;
+            *B8000(75+j)=buf[j]|0x0F00;
          }
          sprintf(buf,"X=$%02X",v6502->X);
          for (j=0; buf[j]; j++)
          {
-            *((short *)0xB8000+80+75+j)=buf[j]|0x0F00;
+            *B8000(80+75+j)=buf[j]|0x0F00;
          }
          sprintf(buf,"Y=$%02X",v6502->Y);
          for (j=0; buf[j]; j++)
          {
-            *((short *)0xB8000+160+75+j)=buf[j]|0x0F00;
+            *B8000(160+75+j)=buf[j]|0x0F00;
          }
          sprintf(buf,"%c%c%c%c%c%c%c",
                  (v6502->P&0x80 ? 'N' : '-'),
@@ -288,14 +287,14 @@ void main(void)
                  (v6502->P&0x01 ? 'C' : '-'));
          for (j=0; buf[j]; j++)
          {
-            *((short *)0xB8000+320+73+j)=buf[j]|0x0F00;
+            *B8000(320+73+j)=buf[j]|0x0F00;
          }
 
          for (j=0; j<256; j++)
          {
-            *((short *)0xB8000+80*(25-16+(j>>4))+41+(j&15)*2+((j&15)>>1))=
+            *B8000(80*(25-16+(j>>4))+41+(j&15)*2+((j&15)>>1))=
                   Hex[v6502->address_space[j]>>4]|0x0F00;
-            *((short *)0xB8000+80*(25-16+(j>>4))+41+(j&15)*2+((j&15)>>1)+1)=
+            *B8000(80*(25-16+(j>>4))+41+(j&15)*2+((j&15)>>1)+1)=
                   Hex[v6502->address_space[j]&15]|0x0F00;
          }
 
@@ -310,7 +309,7 @@ void main(void)
 
          for (i=0; i<24; i++)
          {
-            wp=(unsigned short *)(0xB8000+i*(wide ? 80 : 160));
+            wp=(unsigned short *)B8000(i*(wide ? 80 : 160));
             rp=v6502->address_space+
                   (0x400+((i<<7)&0x0300)+
                    (((i&0x18)+((i&1)<<7))|
@@ -342,7 +341,7 @@ void main(void)
             }
          }
 
-         if (*(short *)0x041A!=*(short *)0x041C)
+         if (*(short *)v_m(0x041A)!=*(short *)v_m(0x041C))
          {
             if ((i=getch())==0) i=-getch();
             switch(i)
@@ -355,7 +354,7 @@ void main(void)
             }
                break;
             case -59:
-               ot=(*(int *)0x46C) - ot;
+               ot=(*(int *)v_m(0x46C)) - ot;
             {
                union REGS r;
                r.w.ax=0x03; int386(0x10,&r,&r);
@@ -416,7 +415,7 @@ void main(void)
       }
       else
       {
-         while(*(short *)0x041A==*(short *)0x041C)
+         while(*(short *)v_m(0x041A)==*(short *)v_m(0x041C))
          {
          }
       }
