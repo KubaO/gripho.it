@@ -16,16 +16,16 @@ enum {
 };
 
 struct V6502;
-using JumpEntry = void (*)(V6502*);
-using JumpImpl = void (V6502::*)();
+using JumpEntry = void (V6502::*)();
 
 struct V6502 : Virtual_6502 {
    unsigned char *pc, *ea, *stk;
    uint8_t flags, y, x, a;
+
    void execute();
    uint16_t pc_val() const { return (uintptr_t)pc; }
 
-   template <int cycles, JumpImpl Op, JumpImpl Addr>
+   template <int cycles, JumpEntry Op, JumpEntry Addr>
    void op_impl() {
       ticks -= cycles;
       (*this.*Addr)();
@@ -307,8 +307,8 @@ int Execute6502(Virtual_6502 *v6502, int nticks)
    return nticks+v6502->ticks;
 }
 
-std::array<JumpImpl, 256> JumpTableInit() {
-   std::array<JumpImpl, 256> op;
+std::array<JumpEntry, 256> JumpTableInit() {
+   std::array<JumpEntry, 256> op;
    using V = V6502;
    op.fill(&V6502::op_illegal);
 
@@ -485,7 +485,7 @@ std::array<JumpImpl, 256> JumpTableInit() {
    return op;
 }
 
-const std::array<JumpImpl, 256> JumpTable = JumpTableInit();
+const std::array<JumpEntry, 256> JumpTable = JumpTableInit();
 
 void V6502::execute()
 {
