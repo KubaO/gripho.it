@@ -18,11 +18,11 @@ int lineStep(const QImage &img, int subWidth) {
    return -subWidth + ((img.height() > 1) ? img.bytesPerLine() * 8 / img.depth() : 0);
 }
 
-const QRgb *scanLine (const QImage &dst, const QPoint pos) {
+const QRgb *scanLine (const QImage &dst, const QPoint &pos) {
    return reinterpret_cast<const QRgb*>(dst.scanLine(pos.y()) + pos.x()*sizeof(QRgb));
 }
 
-QRgb *scanLine (QImage &dst, const QPoint pos) {
+QRgb *scanLine (QImage &dst, const QPoint &pos) {
    return reinterpret_cast<QRgb*>(dst.scanLine(pos.y()) + pos.x()*sizeof(QRgb));
 }
 
@@ -37,7 +37,7 @@ public:
       m_width(s.width()), m_height(s.height()),
       m_lineLength(s.bytesPerLine()*8/s.depth()),
       m_buf(m_lineLength*m_height, value) {}
-   inline T *scanLine(const QPoint pos) {
+   inline T *scanLine(const QPoint &pos) {
       return m_buf.data() + m_lineLength * pos.y() + pos.x();
    }
    void clear() {
