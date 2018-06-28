@@ -158,7 +158,7 @@ void CONIO::addExtKey(int key) {
    addKey(key << 8);
 }
 
-void CONIO::addQtKey(int key, int modifiers) {
+void CONIO::addQtKey(int const key, int const modifiers) {
    static const struct { int qt, key; } lookup[] = {
    {Qt::Key_Tab | Qt::SHIFT, 0x0f00},
    {Qt::Key_Insert, 0x5200},
@@ -198,27 +198,27 @@ void CONIO::addQtKey(int key, int modifiers) {
 
    int const kmod = key | modifiers;
    if (key >= Qt::Key_F1 && key <= Qt::Key_F10) {
-      key -= Qt::Key_F1;
+      auto k = key - Qt::Key_F1;
       if (modifiers == 0)
-         addExtKey(key+0x3b);
+         addExtKey(k+0x3b);
       else if (modifiers == Qt::ShiftModifier)
-         addExtKey(key+0x54);
+         addExtKey(k+0x54);
       else if (modifiers == Qt::ControlModifier)
-         addExtKey(key+0x5e);
+         addExtKey(k+0x5e);
       else if (modifiers == Qt::AltModifier)
-         addExtKey(key+0x68);
+         addExtKey(k+0x68);
    }
    else if (key >= Qt::Key_A && key <= Qt::Key_Z) {
-      key -= Qt::Key_A;
+      auto k  = key - Qt::Key_A;
       if (modifiers == Qt::AltModifier)
-         addExtKey(altLetters[key]);
+         addExtKey(altLetters[k]);
    }
    else if (key >= Qt::Key_0 && key <= Qt::Key_9) {
-      key -= Qt::Key_0;
+      auto k = key - Qt::Key_0;
       if (modifiers == Qt::AltModifier)
-         addExtKey(altDigits[key]);
+         addExtKey(altDigits[k]);
    }
-   else if (kmod >= Qt::Key_Space && kmod <= Qt::Key_AsciiTilde) {
+   if (kmod >= Qt::Key_Space && kmod <= Qt::Key_AsciiTilde) {
       addKey(key);
    }
    else {
