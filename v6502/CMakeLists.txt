@@ -7,6 +7,6 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt5Widgets REQUIRED)
 
-add_executable(try "try.cpp")
+add_executable(try "try.cpp" "asm_6502.cpp")
 
 unset(QT_QMAKE_EXECUTABLE)
