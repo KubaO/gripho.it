@@ -281,10 +281,10 @@ struct V6502 : Virtual_6502 {
 
 Virtual_6502 *New6502(void)
 {
-   V6502 *v6502;
    int size = sizeof(V6502)+65536*2;
-   if ((v6502=(V6502*)malloc(size))==NULL)
-      return NULL;
+   auto *const v6502 = (V6502*)malloc(size);
+   if (!v6502)
+      return {};
    memset(v6502,0,size);
    v6502->address_space=
          (unsigned char *)(((uintptr_t)v6502+sizeof(V6502)+65535)&~65535);
@@ -292,14 +292,6 @@ Virtual_6502 *New6502(void)
    v6502->special_start=v6502->address_space;
    v6502->special_end=v6502->address_space;
    v6502->rom_start=v6502->address_space;
-   v6502->special_write=NULL;
-   v6502->special_read=NULL;
-   v6502->PC=0;
-   v6502->A=0;
-   v6502->X=0;
-   v6502->Y=0;
-   v6502->S=0;
-   v6502->P=0;
    return v6502;
 }
 
