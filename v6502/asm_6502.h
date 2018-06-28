@@ -3,21 +3,21 @@
 
 typedef struct VIRTUAL_6502
 {
-  unsigned char *address_space;
-  unsigned char *special_start;
-  unsigned char *special_end;
-  unsigned char *rom_start;
-  int ticks;
-  void (*special_write)(void);
-  void (*special_read)(void);
-  int special_ea;
-  int special_value;
-  int PC;
-  int A;
-  int X;
-  int Y;
-  int S;
-  int P;
+   unsigned char *address_space;
+   unsigned char *special_start;
+   unsigned char *special_end;
+   unsigned char *rom_start;
+   int ticks;
+   void (*special_write)(void);
+   void (*special_read)(void);
+   int special_ea;
+   int special_value;
+   int PC;
+   int A;
+   int X;
+   int Y;
+   int S;
+   int P;
 } Virtual_6502;
 
 extern Virtual_6502 *asm_6502_info;
