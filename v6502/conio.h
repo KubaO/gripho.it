@@ -5,11 +5,12 @@
 #include <i86.h>
 
 class CONIO {
+  class Private;
   int argc;
   char argv0[1] = "";
   char *argv[2] = { argv0, nullptr };
-  class Display *display = {};
   char mem[0x100000];
+  Private *d = {};
   enum {
     KEYMODS     = 0x0417,
     KEYBUF_NEXT = 0x041A,
@@ -37,7 +38,7 @@ public:
   int inp(unsigned port);
   void outp(unsigned port);
 
-  static char *vm();
+  char *vm(int addr);
 
   int getch();
   void clearKeyBuffer();
@@ -59,9 +60,7 @@ inline void outp(unsigned port) { CONIO::io().outp(port); }
 
 // Memory
 
-inline char *v_m(int addr) { return CONIO::vm() + addr; }
-
-inline char *CONIO::vm() { return io().mem; }
+inline char *v_m(int addr) { return CONIO::io().vm(addr); }
 
 // Int Dispatch
 

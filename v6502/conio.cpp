@@ -13,7 +13,7 @@ class Display : public QRasterWindow {
    QPointF m_glyphPos;
    int m_charsPerLine, m_lines;
    QMap<QChar, QImage> m_glyphs;
-   QFont m_font{"Monaco", 12};
+   QFont m_font{"Monaco", 14};
    QFontMetricsF m_fm{m_font};
    inline int xStep() const { return m_glyphSize.width(); }
    inline int yStep() const { return m_glyphSize.height(); }
@@ -29,16 +29,23 @@ public:
 
 // CONIO
 
+class CONIO::Private {
+public:
+   QElapsedTimer timer;
+   Display display;
+};
+
 CONIO::CONIO()
 {
    new QGuiApplication(argc, argv);
-   display = new Display;
-   display->show();
+   d = new Private;
+   d->display.show();
+   d->timer.start();
    clearKeyBuffer();
 }
 
 CONIO::~CONIO() {
-   delete display;
+   delete d;
    delete qApp;
 }
 
@@ -52,11 +59,26 @@ int CONIO::inp(unsigned port) {
 }
 
 void CONIO::outp(unsigned port) {
-
 }
 
 // Memory
 
+char *CONIO::vm(int addr) {
+   if (addr < 0x500) {
+      if (addr == KEYBUF_FREE) {
+         QCoreApplication::processEvents();
+         QThread::yieldCurrentThread();
+      }
+      else if (addr == TICKS) {
+         *(int32_t*)(mem+TICKS) = d->timer.elapsed() / 55;
+         QThread::yieldCurrentThread();
+      }
+   }
+   else if (addr >= 0xB8000 && addr < 0xC0000) {
+      return (char*)io().B8000(addr - 0xB8000);
+   }
+   return mem + addr;
+}
 
 // Int Dispatch
 
@@ -174,21 +196,21 @@ void CONIO::int10h(const REGS *in, REGS *out) {
 }
 
 void CONIO::updateScreen() {
-   display->update();
+   d->display.update();
 }
 
 void CONIO::setMode(int mode) {
    if (mode == 0x01)
-      display->setSize(40, 25);
+      d->display.setSize(40, 25);
    else if (mode == 0x03)
-      display->setSize(80, 25);
+      d->display.setSize(80, 25);
 }
 
 // Display
 
 static auto const CP437 = QStringLiteral(
          " ☺☻♥♦♣♠•◘○◙♂♀♪♫☼▶◀↕‼¶§▬↨↑↓→←∟↔▲▼"
-         "␣!\"#$%&'()*+,-./0123456789:;<=>?"
+         " !\"#$%&'()*+,-./0123456789:;<=>?"
          "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
          "`abcdefghijklmnopqrstuvwxyz{|}~ "
          "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒ"
@@ -262,7 +284,6 @@ void Display::paintEvent(QPaintEvent *) {
          drawChar(p, unit);
       }
    }
-
 }
 
 void Display::setSize(int width, int height) {

@@ -196,7 +196,7 @@ int main()
    v6502->special_start=v6502->address_space+0xC000;
    v6502->special_end=v6502->special_start+0x0100;
 
-   if ((f=fopen("apple2.img","rb"))!=NULL)
+   if ((f=fopen("apple2.img","rb")) || (f=fopen("../v6502/apple2.img","rb")))
    {
       fread(&v6502->A,1,1,f);
       fread(&v6502->X,1,1,f);
@@ -208,7 +208,7 @@ int main()
    }
    else
    {
-      if ((f=fopen("apple2.rom","rb"))==NULL)
+      if (!(f=fopen("apple2.rom","rb")) && !(f=fopen("../v6502/apple2.rom","rb")))
       {
          printf("Unable to open rom image\n");
          exit(1);
@@ -304,7 +304,7 @@ int main()
          unsigned short *wp;
          int i,j,f;
 
-         f=((*(char *)0x46C)&0x04)?0x7000:0x0700;
+         f=((*(char *)v_m(0x46C))&0x04)?0x7000:0x0700;
 
          for (i=0; i<24; i++)
          {
