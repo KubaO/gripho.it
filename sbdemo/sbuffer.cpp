@@ -26,22 +26,20 @@ QRgb *scanLine (QImage &dst, const QPoint &pos) {
    return reinterpret_cast<QRgb*>(dst.scanLine(pos.y()) + pos.x()*sizeof(QRgb));
 }
 
-template <typename T = int>
+template <typename T>
 class ZBuffer {
-   int m_width, m_height, m_lineLength;
+   int const m_lineLength;
    std::vector<T> m_buf;
 public:
-   using value_type = T;
-   static T defaultZ() { return std::numeric_limits<T>::max(); }
-   explicit ZBuffer(const QImage &s, T value = defaultZ()) :
-      m_width(s.width()), m_height(s.height()),
+   static T maxZ() { return std::numeric_limits<T>::max(); }
+   explicit ZBuffer(const QImage &s, T value = maxZ()) :
       m_lineLength(s.bytesPerLine()*8/s.depth()),
-      m_buf(m_lineLength*m_height, value) {}
+      m_buf(m_lineLength*s.height(), value) {}
    inline T *scanLine(const QPoint &pos) {
       return m_buf.data() + m_lineLength * pos.y() + pos.x();
    }
    void clear() {
-      std::fill(m_buf.begin(), m_buf.end(), defaultZ());
+      std::fill(m_buf.begin(), m_buf.end(), maxZ());
    }
 };
 
@@ -98,7 +96,7 @@ class ZBufPainter : public ImagePainter {
    QImage fill{dst.width(), 1, dst.format()};
    int z;
    void draw(const QRect &dstRect, const QRect &srcRect, const QImage &src) {
-      Q_ASSERT(z < std::numeric_limits<decltype(zbuf)::value_type>::max());
+      Q_ASSERT(z < zbuf.maxZ());
       auto *sp = scanLine(src, srcRect.topLeft());
       auto *dp = scanLine(dst, dstRect.topLeft());
       auto *zp = zbuf.scanLine(dstRect.topLeft());
