@@ -331,9 +331,7 @@ public:
 int main(int argc, char *argv[])
 {
    QGuiApplication app(argc, argv);
-   QImage src("../sbdemo/monkey.bmp");
-   if (src.isNull())
-      qFatal("Cannot load monkey.bmp.");
+   QImage src(":/monkey.bmp");
 
    Demo demo(src.convertToFormat(QImage::Format_ARGB32_Premultiplied).scaled(src.size()*2));
    Display disp("<qt>1=Painter<br>2=Z-Buf<br>3=FS-Buf<br>Space=Pause</qt>");
