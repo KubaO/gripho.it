@@ -11,190 +11,226 @@
 #include <cstdint>
 #include <cstring>
 
-//
-// Video address and offscreen buffer
-//
-
-QImage Image;
-QImage buf{320, 200, QImage::Format_ARGB32_Premultiplied};
-
-constexpr QRgb white = qRgb(255, 255, 225);
-constexpr QRgb black = qRgb(0, 0, 0);
-
-//
-// Read a pixel from the image adding a 2 pixel border
-// (just to slow down the pixel computation)
-//
-QRgb GetPixel(int x, int y)
-{
-   if (x<2 || x>Image.width()-3 || y<2 || y>Image.height()-3)
-      return Qt::black;
-   return Image.pixel(x, y);
+int lineStep(const QImage &img, int subWidth) {
+   Q_ASSERT((img.bytesPerLine() * 8) % img.depth() == 0);
+   return (img.bytesPerLine() * 8) / img.depth() - subWidth;
 }
 
-//
-// Simple draw (painter)
-//
-void DrawImage(int xa,int ya)
-{
-   QPainter p(&buf);
-   p.drawImage(xa, ya, Image);
+template <typename T = QRgb>
+const T *imgScanLine (const QImage &dst, const QPoint pos) {
+   return reinterpret_cast<const T*>(dst.scanLine(pos.y()) + pos.x()*sizeof(T));
 }
 
-//
-// Z-Buffer draw 
-//
+template <typename T = QRgb>
+T *imgScanLine (QImage &dst, const QPoint pos) {
+   return const_cast<T*>(imgScanLine(const_cast<const QImage &>(dst), pos));
+}
 
-unsigned char ZBuf[320*200];
-
-void DrawZBImage(int xa,int ya,int z)
-{
-   auto const size = Image.size();
-   int y,x0,y0,x1,y1;
-   x0=xa; y0=ya; x1=x0+size.width(); y1=y0+size.height();
-   if (x0<0) x0=0;
-   if (y0<0) y0=0;
-   if (x1>320) x1=320;
-   if (y1>200) y1=200;
-   if (x0<x1 && y0<y1)
-   {
-      auto *wp = ((QRgb*)buf.scanLine(y0)) + x0;
-      auto *zp = ZBuf+y0*320+x0;
-      y=y0-ya;
-      while (y0<y1)
-      {
-         auto *wp1=wp;
-         auto *zp1=zp;
-         int c=x1-x0;
-         int x=x0-xa;
-         do {
-            if (*zp1>z)
-            {
-               *zp1=z; *wp1=GetPixel(x,y);
-            }
-            wp1++; zp1++; x++;
-         } while (--c);
-         wp+=320; y++; zp+=320;
-         y0++;
-      }
+template <typename T = int>
+class ZBuffer {
+   int m_width, m_height, m_lineLength;
+   QVector<T> m_buf;
+public:
+   using value_type = T;
+   static T defaultZ() { return std::numeric_limits<T>::max(); }
+   explicit ZBuffer(int width, int height, int lineLength, T value = defaultZ()) :
+      m_width(width), m_height(height), m_lineLength(lineLength),
+      m_buf(m_lineLength*m_height, value) {}
+   explicit ZBuffer(int width, int height, T value = defaultZ()) :
+      ZBuffer(width, height, width, value) {}
+   inline T *scanLine(const QPoint pos) {
+      return m_buf.data() + m_lineLength * pos.y() + pos.x();
    }
-}
-
-//
-// Free Span Buffer draw
-//
-
-struct Span
-{
-   int x0;
-   int x1;
-   Span *next;
+   inline int lineStep(int subWidth) const {
+      return m_lineLength - subWidth;
+   }
+   void clear() {
+      m_buf.fill(defaultZ());
+   }
 };
 
-#define MAXYRES 1024
-
-Span *FirstSpan[MAXYRES];
-Span *FirstUnusedSpan;
-
-Span *NewSpan()
-{
-   Span *s = FirstUnusedSpan;
-   if (!s)
-      s = new Span;
-   else
-      FirstUnusedSpan = s->next;
-   return s;
+QImage WithBorder(QImage img, int width) {
+   QPainter p(&img);
+   QPen pen(Qt::black);
+   pen.setWidth(width);
+   p.setPen(pen);
+   qreal a = width/2;
+   p.drawRect(QRectF(img.rect()).adjusted(a-1,a-1,-a,-a));
+   return img;
 }
 
-void FreeSpan(Span *s)
-{
-   s->next=FirstUnusedSpan;
-   FirstUnusedSpan=s;
-}
+class ImagePainter {
+protected:
+   const QImage src;
+   QImage &dst;
+public:
+   ImagePainter(const QImage &src, QImage &dst) : src(src), dst(dst) {}
+   virtual ~ImagePainter() {}
+};
 
-int sbxa,sbya;
+class DrawPainter : public ImagePainter {
+public:
+   using ImagePainter::ImagePainter;
+   void draw(int x, int y) {
+      QPainter p(&dst);
+      p.drawImage(x, y, src);
+   }
+};
 
-void DrawPart(int y, int x0, int x1)
-{
-   QRgb *wp = ((QRgb*)buf.scanLine(y)) + x0;
-   x1 -= x0;
-   int ix = x0-sbxa;
-   int iy = y-sbya;
-   do
-   {
-      *wp++ = GetPixel(ix++,iy);
-   } while (--x1);
-}
+class ZBufPainter : public ImagePainter {
+   ZBuffer<quint8> zbuf{dst.width(), dst.height()};
+public:
+   using ImagePainter::ImagePainter;
+   void draw(int x, int y, int z) {
+      QRect dstRect = src.rect().adjusted(x, y, x, y);
+      dstRect = dstRect.intersected(dst.rect());
+      if (dstRect.isEmpty())
+         return;
 
-void DrawSegment(int y,int xa,int xb)
-{
-   for (Span *old=NULL, *current=FirstSpan[y];
-        current!=NULL;
-        old=current, current=current->next)
-   {
-      if (current->x1<=xa) // Case 1
-         continue;
+      QRect srcRect = dstRect.adjusted(-x, -y, -x, -y);
+      srcRect = srcRect.normalized();
 
-      if (current->x0<xa)
-      {
-         if (current->x1<=xb) // Case 2
-         {
-            DrawPart(y,xa,current->x1);
-            current->x1=xa;
+      auto *dp = imgScanLine(dst, dstRect.topLeft());
+      auto *zp = zbuf.scanLine(dstRect.topLeft());
+      int const dStep = lineStep(dst, srcRect.width());
+      int const zStep = zbuf.lineStep(srcRect.width());
+      for (int y = srcRect.top(); y < srcRect.bottom()+1; ++y) {
+         for (int x = srcRect.left(); x < srcRect.right()+1; ++x) {
+            if (*zp > z) {
+               *zp = z;
+               *dp = src.pixel(x, y);
+            }
+            dp ++; zp++;
          }
-         else // Case 3
-         {
-            DrawPart(y,xa,xb);
-            Span *n=NewSpan();
-            n->next=current->next;
-            current->next=n;
-            n->x1=current->x1;
-            current->x1=xa; n->x0=xb;
-            return;
-         }
+         dp += dStep; zp += zStep;
       }
-      else
-      {
-         if (current->x0>=xb) // Case 6
-            return;
+   }
+   void clear() {
+      zbuf.clear();
+   }
+};
 
-         if (current->x1<=xb) // Case 4
+class FreeSpanDraw : public ImagePainter {
+   struct Span
+   {
+      int x0;
+      int x1;
+      Span *next;
+   };
+   QVector<Span*> FirstSpan{dst.height()};
+   Span* FirstUnusedSpan = {};
+   int sbxa, sbya;
+
+   Span *NewSpan(int x0, int x1, Span *next)
+   {
+      Span *s = FirstUnusedSpan;
+      if (!s)
+         s = new Span{x0, x1, next};
+      else {
+         FirstUnusedSpan = s->next;
+         s->x0 = x0;
+         s->x1 = x1;
+         s->next = next;
+      }
+      return s;
+   }
+   void FreeSpan(Span *s)
+   {
+      s->next = FirstUnusedSpan;
+      FirstUnusedSpan = s;
+   }
+   void FreeSpans(Span *&s0)
+   {
+      while (Span *s = s0)
+      {
+         s0 = s->next;
+         FreeSpan(s);
+      }
+
+   }
+   void DrawPart(int y, int x0, int x1)
+   {
+      auto *wp = imgScanLine(dst, {x0, y});
+      auto *rp = imgScanLine(src, {x0-sbxa, y-sbya});
+      memcpy(wp, rp, (x1-x0)*sizeof(QRgb));
+   }
+   void DrawSegment(int y, int xa, int xb)
+   {
+      for (Span *old={}, *current=FirstSpan[y];
+           current;
+           old=current, current=current->next)
+      {
+         if (current->x1 <= xa) // Case 1
+            continue;
+
+         if (current->x0 < xa)
          {
-            DrawPart(y,current->x0,current->x1);
-            Span *n=current->next; FreeSpan(current);
-            if (old) old->next=n;
-            else FirstSpan[y]=n;
-            current=n;
-            if (current==NULL) return;
+            if (current->x1 <= xb) // Case 2
+            {
+               DrawPart(y, xa, current->x1);
+               current->x1=xa;
+            }
+            else // Case 3
+            {
+               DrawPart(y, xa, xb);
+               Span *n=NewSpan(xb, current->x1, current->next);
+               current->next = n;
+               current->x1 = xa;
+               return;
+            }
          }
-         else // Case 5
+         else
          {
-            DrawPart(y,current->x0,xb);
-            current->x0=xb;
+            if (current->x0 >= xb) // Case 6
+               return;
+
+            if (current->x1 <= xb) // Case 4
+            {
+               DrawPart(y, current->x0, current->x1);
+               Span *n=current->next; FreeSpan(current);
+               if (old) old->next=n;
+               else FirstSpan[y]=n;
+               current=n;
+               if (current==NULL) return;
+            }
+            else // Case 5
+            {
+               DrawPart(y, current->x0, xb);
+               current->x0=xb;
+            }
          }
       }
    }
-}
-
-void DrawFSBImage(int xa,int ya)
-{
-   int x0,y0,x1,y1;
-   sbxa=xa; sbya=ya;
-   x0=xa; y0=ya; x1=x0+Image.width(); y1=y0+Image.height();
-   if (x0<0) x0=0;
-   if (y0<0) y0=0;
-   if (x1>320) x1=320;
-   if (y1>200) y1=200;
-   if (x0<x1 && y0<y1)
-   {
-      while (y0<y1)
-      {
-         DrawSegment(y0,x0,x1);
-         y0++;
+public:
+   using ImagePainter::ImagePainter;
+   void draw(int xa, int ya) {
+      int x0,y0,x1,y1;
+      sbxa=xa; sbya=ya;
+      x0=xa; y0=ya; x1=x0+src.width(); y1=y0+src.height();
+      if (x0<0) x0=0;
+      if (y0<0) y0=0;
+      if (x1>dst.width()) x1=dst.width();
+      if (y1>dst.height()) y1=dst.height();
+      if (x0<x1)
+         while (y0<y1)
+         {
+            DrawSegment(y0, x0, x1);
+            y0++;
+         }
+   }
+   void Init() {
+      for (auto &span : FirstSpan) {
+         FreeSpans(span);
+         span = NewSpan(0, dst.width(), nullptr);
       }
    }
-}
-
+   void End() {
+      constexpr QRgb black = qRgb(0, 0, 0);
+      for (int i=dst.height()-1; i>=0; i--)
+         for (Span *s=FirstSpan[i]; s; s=s->next)
+            std::fill_n(imgScanLine(dst, {s->x0, i}), s->x1-s->x0, black);
+   }
+};
 
 const char *Info[]={
    "  xxx        xxxx   xxx  xxx x   x xxxxx xxxx xxxx",
@@ -217,12 +253,22 @@ const char *Info[]={
    ""
 };
 
+void DrawAsciiArt(QImage &dst, const char *info[], int x, int y) {
+   for (int i=0; info[i][0]!='\0'; i++) {
+      auto *dp = imgScanLine(dst, {x, y+i});
+      for (int j=0; info[i][j]!='\0'; j++, dp++)
+         if (info[i][j]=='x')
+            *dp = qRgba(255, 255, 255, 255);
+   }
+}
+
 class Display : public QRasterWindow {
    Q_OBJECT
    QImage img{320*2, 200*2, QImage::Format_ARGB32_Premultiplied};
 protected:
    void paintEvent(QPaintEvent *) override {
       QPainter p(this);
+      p.fillRect(QRect({}, size()), Qt::black);
       p.drawImage(0, 0, img);
    }
    void keyPressEvent(QKeyEvent *k) override {
@@ -246,10 +292,16 @@ public:
 int main(int argc, char *argv[])
 {
    QGuiApplication app(argc, argv);
-   Image.load("../sbdemo/monkey.bmp");
-   if (Image.isNull())
+   QImage Src("../sbdemo/monkey.bmp");
+   if (Src.isNull())
       qFatal("Cannot load monkey.bmp.");
+   QImage const Image = std::move(Src).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+   QImage const BImage = WithBorder(Image, 3);
 
+   QImage dst{320, 200, QImage::Format_ARGB32_Premultiplied};
+   DrawPainter draw(Image, dst);
+   ZBufPainter zbuf(BImage, dst);
+   FreeSpanDraw span(BImage, dst);
    Display disp;
 
    constexpr int NPICS = 200;
@@ -264,7 +316,6 @@ int main(int argc, char *argv[])
    int xoffs=Image.width()/2;
    int yoffs=Image.height()/2;
    int method=0;
-
    QObject::connect(&disp, &Display::reqMethod, [&](int m){ method = m; });
 
    QTimer t;
@@ -284,53 +335,25 @@ int main(int argc, char *argv[])
       switch(method)
       {
       case 0:
-         buf.fill(Qt::black);
+         dst.fill(Qt::black);
          for (int i=NPICS-1; i>=0; i--)
-         {
-            DrawImage((x[i]>>8)-xoffs,(y[i]>>8)-yoffs);
-         }
+            draw.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs);
          break;
       case 1:
-         memset(ZBuf, 255, buf.width() * buf.height());
-         buf.fill(Qt::black);
+         zbuf.clear();
+         dst.fill(Qt::black);
          for (int i=0; i<NPICS; i++)
-         {
-            DrawZBImage((x[i]>>8)-xoffs,(y[i]>>8)-yoffs,i);
-         }
+            zbuf.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs, i);
          break;
       case 2:
-         for (int i=0; i<200; i++)
-         {
-            Span *s;
-            while ((s=FirstSpan[i])!=NULL)
-            {
-               FirstSpan[i]=s->next;
-               FreeSpan(s);
-            }
-            s=NewSpan();
-            s->next=NULL; FirstSpan[i]=s;
-            s->x0=0; s->x1=320;
-         }
+         span.Init();
          for (int i=0; i<NPICS; i++)
-         {
-            DrawFSBImage((x[i]>>8)-xoffs,(y[i]>>8)-yoffs);
-         }
-         for (int i=0; i<200; i++)
-         {
-            Span *s;
-            for (s=FirstSpan[i]; s!=NULL; s=s->next)
-            {
-               //memset(Video+i*320+s->x0,black,s->x1-s->x0);
-               memset(buf.scanLine(i)+s->x0, black, s->x1-s->x0);
-            }
-         }
+            span.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs);
+         span.End();
          break;
       }
-      for (int i=0; Info[i][0]!='\0'; i++)
-         for (int j=0; Info[i][j]!='\0'; j++)
-            if (Info[i][j]=='x')
-               buf.setPixel(j+1, 4+i, Qt::white);
-      disp.setImage(buf);
+      DrawAsciiArt(dst, Info, 1, 4);
+      disp.setImage(dst);
    });
 
    disp.show();
