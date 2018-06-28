@@ -131,12 +131,43 @@ public:
 };
 
 struct Span {
-   int x0, x1;
+   int x0 = 0, x1 = 0;
+   Span() = default;
+   Span(int x0, int x1) : x0(x0), x1(x1) {}
+   constexpr bool isEmpty() const { return x1 == x0; }
    constexpr int size() const { return x1 - x0; }
 };
 
+struct SpanDiffInter {
+   Span inter;    // a intersection b
+   Span diff[2];  // a difference b
+   explicit SpanDiffInter(const Span &a, const Span &b) {
+      if (a.x1 <= b.x0 ||             // aa  bb  a1<=b0
+          b.x1 <= a.x0) {             // bb  aa  a0>=b1
+         diff[0] = a;
+      }
+      else if (a.x0 < b.x0) {
+         if (a.x1 <= b.x1) {          // aa##bb  a0<b0,  a1<b1
+            diff[0] = {a.x0, b.x0};   // aa##    a0<b0,  a1==b1
+            inter   = {b.x0, a.x1};
+         } else {                     // aa##aa  a0<b0,  a1>b1
+            diff[0] = {a.x0, b.x0};
+            inter   = {b.x0, b.x1};
+            diff[1] = {b.x1, a.x1};
+         }
+      } else {
+         if (a.x1 > b.x1) {
+            inter   = {a.x0, b.x1};   //   ##aa  a0==b0, a1>b1
+            diff[0] = {b.x1, a.x1};   // bb##aa  a0>b0,  a1>b1
+         } else {
+            inter   = {a.x0, a.x1};   //   ##bb  a0==b0, a1<b1
+         }                            //   ##    a0==b0, a1==b1
+      }                               // bb##bb  a0>b0,  a1<b1
+   }                                  // bb##    a0>b0,  a1==b1
+};
+
 class FreeSpanDraw : public ImagePainter {
-   QVector<QVector<Span>> Spans = QVector<QVector<Span>>(dst.height());
+   std::vector<std::vector<Span>> Spans;
 
    void DrawPart(int y, const Span &s, const QPoint &dPos)
    {
@@ -147,44 +178,18 @@ class FreeSpanDraw : public ImagePainter {
    void DrawSegment(int y, const Span &d, const QPoint &dp)
    {
       auto &spans = Spans[y];
-      for (auto is = spans.begin(); is != spans.end(); ++is)
+      for (auto is = spans.begin(); is != spans.end(); )
       {
-         Span &s = *is;
-         if (s.x1 <= d.x0) // Case 1
-            continue;
-
-         if (s.x0 < d.x0)
-         {
-            if (s.x1 <= d.x1) // Case 2
-            {
-               DrawPart(y, {d.x0, s.x1}, dp);
-               s.x1 = d.x0;
-            }
-            else // Case 3
-            {
-               DrawPart(y, d, dp);
-               const Span s2 = {d.x1, s.x1};
-               s = {s.x0, d.x0};
-               spans.insert(std::next(is), s2);
-               return;
-            }
-         }
-         else
-         {
-            if (s.x0 >= d.x1) // Case 6
-               return;
-
-            if (s.x1 <= d.x1) // Case 4
-            {
-               DrawPart(y, s, dp);
-               is = spans.erase(is);
-               if (is == spans.end())
-                  return;
-            }
-            else // Case 5
-            {
-               DrawPart(y, {s.x0, d.x1}, dp);
-               s.x0 = d.x1;
+         SpanDiffInter const ss{*is, d};
+         if (!ss.inter.isEmpty())
+            DrawPart(y, ss.inter, dp);
+         if (ss.diff[0].isEmpty())
+            is = spans.erase(is);
+         else {
+            *is++ = ss.diff[0];
+            if (!ss.diff[1].isEmpty()) {
+               is = spans.insert(is, ss.diff[1]);
+               is++;
             }
          }
       }
@@ -196,6 +201,7 @@ class FreeSpanDraw : public ImagePainter {
 public:
    using ImagePainter::ImagePainter;
    void begin() override {
+      Spans.resize(dst.height());
       for (auto &spans : Spans) {
          spans.resize(1);
          spans[0] = {0, dst.width()};
