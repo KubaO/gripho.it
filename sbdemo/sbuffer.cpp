@@ -91,6 +91,11 @@ public:
    void begin() override {
       dst.fill(Qt::transparent);
    }
+   void end() override {
+      QPainter p(&dst);
+      p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
+      p.fillRect(dst.rect(), Qt::black);
+   }
 };
 
 class ZBufPainter : public ImagePainter {
@@ -203,9 +208,8 @@ public:
 };
 
 QImage makeOverlay() {
-   QStaticText text;
+   QStaticText text("1=Painter<br>2=Z-Buf<br>3=FS-Buf");
    text.setTextFormat(Qt::RichText);
-   text.setText("1=Painter<br>2=Z-Buf<br>3=FS-Buf");
    QImage ret(text.size().toSize(), QImage::Format_ARGB32_Premultiplied);
    ret.fill(Qt::transparent);
    QPainter p(&ret);
@@ -217,13 +221,13 @@ QImage makeOverlay() {
 class Display : public QRasterWindow {
    Q_OBJECT
    QImage img, overlay;
-   QPoint overlayPos;
 protected:
    void paintEvent(QPaintEvent *) override {
       QPainter p(this);
-      p.fillRect(QRect({}, size()), Qt::black);
+      p.setCompositionMode(QPainter::CompositionMode_Source);
       p.drawImage(0, 0, img);
-      p.drawImage(overlayPos, overlay);
+      p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+      p.drawImage(2, 2, overlay);
    }
    void keyPressEvent(QKeyEvent *k) override {
       int m = k->key() - Qt::Key_0;
@@ -236,16 +240,15 @@ public:
       resize(size().expandedTo(img.size()));
       update();
    }
-   void setOverlay(const QImage &ovly, const QPoint p) {
+   void setOverlay(const QImage &ovly) {
       overlay = ovly;
-      overlayPos = p;
       resize(size().expandedTo(overlay.size()));
       update();
    }
    Q_SIGNAL void reqMethod(int);
 };
 
-void bounce(qreal &x, qreal &v, qreal const left, qreal const right) {
+inline void bounce(qreal &x, qreal &v, qreal const left, qreal const right) {
    qreal out;
    if ((out = (x-left)) < 0 || (out = (x-right)) > 0) {
       int n = out / (right - left);
@@ -266,54 +269,65 @@ struct State {
    }
 };
 
-int main(int argc, char *argv[])
-{
-   QGuiApplication app(argc, argv);
-   QImage Src("../sbdemo/monkey.bmp");
-   if (Src.isNull())
-      qFatal("Cannot load monkey.bmp.");
-   QImage const Image = std::move(Src).convertToFormat(QImage::Format_ARGB32_Premultiplied);
-   QImage const BImage = WithBorder(Image, 3, Qt::red);
-
+class Demo : public QObject {
+   Q_OBJECT
    QImage dst{320, 200, QImage::Format_ARGB32_Premultiplied};
-   DrawPainter draw(Image, dst);
-   ZBufPainter zbuf(BImage, dst);
-   FreeSpanDraw span(BImage, dst);
-   std::array<ImagePainter*, 3> painters{&draw, &zbuf, &span};
-   Display disp;
-
-   State state[10];
-
-   auto const offset = Image.rect().center();
-   for (auto &s : state) {
-      s.pos = QPointF(rand()%dst.width(), rand()%dst.height()) - offset;
-      s.vel = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
-   }
-
-   int method=0;
-   QObject::connect(&disp, &Display::reqMethod, [&](size_t m){
-      if (m >= 1 && m <= painters.size()) method = m-1;
-   });
-
-   QTimer timer;
-   timer.setInterval(10);
-   timer.start();
+   const QImage image;
+   const QImage borderImage = WithBorder(image, 3, Qt::red);
+   DrawPainter draw{image, dst};
+   ZBufPainter zbuf{borderImage, dst};
+   FreeSpanDraw span{borderImage, dst};
+   const std::array<ImagePainter*, 3> painters{&draw, &zbuf, &span};
+   ImagePainter *painter = painters.front();
+   QVector<State> state{100};
+   QBasicTimer timer;
    QElapsedTimer el;
-   el.start();
-   QObject::connect(&timer, &QTimer::timeout, [&]{
+
+   void timerEvent(QTimerEvent *ev) override {
+      if (ev->timerId() == timer.timerId() && painter)
+         tick();
+   }
+   void tick() {
       qreal const t = el.restart() / (qreal)10;
       for (auto &s : state)
          s.advance(t, dst.rect());
 
-      auto &painter = *painters[method];
-      painter.begin();
+      painter->begin();
       for (auto &s : state)
-         painter.draw(s.pos.toPoint());
-      painter.end();
-      disp.setImage(dst);
-   });
+         painter->draw(s.pos.toPoint());
+      painter->end();
+      emit hasImage(dst);
+   }
+public:
+   Demo(const QImage &img, QObject *parent = {}) : QObject(parent), image(img)
+   {
+      for (auto &s : state) {
+         s.pos = QPointF(rand()%dst.width(), rand()%dst.height());
+         s.vel = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
+      }
+      timer.start(10, this);
+      el.start();
+   }
+   void setMethod(int m) {
+      if (m >= 1 && m <= painters.size())
+         painter = painters[m-1];
+   }
+   Q_SIGNAL void hasImage(const QImage &);
+};
 
-   disp.setOverlay(makeOverlay(), {2, 2});
+int main(int argc, char *argv[])
+{
+   QGuiApplication app(argc, argv);
+   QImage src("../sbdemo/monkey.bmp");
+   if (src.isNull())
+      qFatal("Cannot load monkey.bmp.");
+
+   Demo demo(std::move(src).convertToFormat(QImage::Format_ARGB32_Premultiplied));
+   Display disp;
+
+   QObject::connect(&disp, &Display::reqMethod, &demo, &Demo::setMethod);
+   QObject::connect(&demo, &Demo::hasImage, &disp, &Display::setImage);
+   disp.setOverlay(makeOverlay());
    disp.show();
    return app.exec();
 }
