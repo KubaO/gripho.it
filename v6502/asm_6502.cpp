@@ -38,11 +38,16 @@ struct V6502 : Virtual_6502 {
 
    // Memory Transfers
 
-   uint16_t mreadw(uint16_t addr) const {
-      return make_u16(address_space[addr+0], address_space[addr+1]);
+   uint16_t mreadw(uint16_t addr) {
+      return make_u16(mread(address_space+addr+0),
+                      mread(address_space+addr+1));
    }
 
    uint8_t mread() {
+      return mread(ea);
+   }
+
+   uint8_t mread(unsigned char *ea) {
       if (ea < special_start || ea >= special_end)
          return *ea;
       special_ea = ea;
@@ -63,7 +68,7 @@ struct V6502 : Virtual_6502 {
 
    uint8_t  fetch()  { return *pc++; }
    int8_t   fetchi() { return *pc++; }
-   uint16_t fetchw() { return pc += 2, mreadw(pc[-2]); }
+   uint16_t fetchw() { return pc += 2, make_u16(pc[-2], pc[-1]); }
 
 
    // Address Calculations
