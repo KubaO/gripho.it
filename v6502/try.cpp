@@ -152,7 +152,7 @@ int Disasm(int pc,char *buffer,unsigned char *p)
 
 int curchar;
 
-void SpecialWrite()
+void SpecialWrite(Virtual_6502 *asm_6502_info)
 {
    if (false)
       printf("** Special write M[%04X]=%02X **\n",
@@ -164,7 +164,7 @@ void SpecialWrite()
    }
 }
 
-void SpecialRead()
+void SpecialRead(Virtual_6502 *asm_6502_info)
 {
    if (false) {
       printf("** Special read M[%04X] **\n",

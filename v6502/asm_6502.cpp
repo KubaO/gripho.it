@@ -46,7 +46,7 @@ struct V6502 : Virtual_6502 {
       if (ea < special_start || ea >= special_end)
          return *ea;
       special_ea = ea;
-      special_read();
+      special_read(this);
       return *ea = special_value;
    }
 
@@ -57,7 +57,7 @@ struct V6502 : Virtual_6502 {
       } else {
          special_ea = ea;
          special_value = val;
-         special_write();
+         special_write(this);
       }
    }
 
@@ -279,8 +279,6 @@ struct V6502 : Virtual_6502 {
    void op_illegal() {}
 };
 
-Virtual_6502 *asm_6502_info;
-
 Virtual_6502 *New6502(void)
 {
    V6502 *v6502;
@@ -310,27 +308,11 @@ void Free6502(Virtual_6502 *v6502)
    free(v6502);
 }
 
-/*
-; X     = dh
-; Y     = dl
-; PC    = ebx
-; EA    = ecx
-; S     = stackp
-; flags = esi (low 8 bits)
-; ticks = esi (high 24 bits)
-*/
-
 int Execute6502(Virtual_6502 *v6502, int nticks)
 {
    v6502->ticks = nticks;
-   asm_6502_info=v6502;
-   asm_6502_Execute();
+   static_cast<V6502*>(v6502)->execute();
    return nticks+v6502->ticks;
-}
-
-void asm_6502_Execute(void)
-{
-   static_cast<V6502*>(asm_6502_info)->execute();
 }
 
 std::array<JumpImpl, 256> JumpTableInit() {

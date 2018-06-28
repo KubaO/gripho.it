@@ -15,9 +15,9 @@ typedef struct VIRTUAL_6502
    // number of 6502 clock ticks to execute
    int ticks;
    // address of write callback function for special addresses
-   void (*special_write)(void);
+   void (*special_write)(VIRTUAL_6502*);
    // address of read callback function for special addresses
-   void (*special_read)(void);
+   void (*special_read)(VIRTUAL_6502*);
    // effective address (valid during a callback)
    unsigned char *special_ea;
    // effective address space address (valid during a callback)
@@ -37,9 +37,6 @@ typedef struct VIRTUAL_6502
    // initial value for P  (0x00->0xFF)
    int P;
 } Virtual_6502;
-
-extern Virtual_6502 *asm_6502_info;
-extern void asm_6502_Execute(void);
 
 Virtual_6502 *New6502(void);
 void Free6502(Virtual_6502 *v6502);
