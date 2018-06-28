@@ -129,67 +129,68 @@ public:
    }
 };
 
+struct Span {
+   int x0, x1;
+   constexpr int size() const { return x1 - x0; }
+};
+
 class FreeSpanDraw : public ImagePainter {
-   struct Span
-   {
-      int x0;
-      int x1;
-   };
    QVector<QVector<Span>> Spans = QVector<QVector<Span>>(dst.height());
 
-
-   void DrawPart(int y, int x0, int x1, const QPoint &dPos)
+   void DrawPart(int y, const Span &s, const QPoint &dPos)
    {
-      auto *dp = scanLine(dst, {x0, y});
-      auto *sp = scanLine(src, QPoint{x0, y}-dPos);
-      std::copy(sp, sp+(x1-x0), dp);
+      auto *dp = scanLine(dst, {s.x0, y});
+      auto *sp = scanLine(src, QPoint{s.x0, y}-dPos);
+      std::copy(sp, sp+s.size(), dp);
    }
-   void DrawSegment(int y, int xa, int xb, const QPoint &dp)
+   void DrawSegment(int y, const Span &d, const QPoint &dp)
    {
       auto &spans = Spans[y];
-      for (auto is = spans.begin(); is != spans.end(); is++)
+      for (auto is = spans.begin(); is != spans.end(); ++is)
       {
-         if (is->x1 <= xa) // Case 1
+         Span &s = *is;
+         if (s.x1 <= d.x0) // Case 1
             continue;
 
-         if (is->x0 < xa)
+         if (s.x0 < d.x0)
          {
-            if (is->x1 <= xb) // Case 2
+            if (s.x1 <= d.x1) // Case 2
             {
-               DrawPart(y, xa, is->x1, dp);
-               is->x1 = xa;
+               DrawPart(y, {d.x0, s.x1}, dp);
+               s.x1 = d.x0;
             }
             else // Case 3
             {
-               DrawPart(y, xa, xb, dp);
-               std::swap(xa, is->x1);
-               spans.insert(++is, {xb, xa});
+               DrawPart(y, d, dp);
+               const Span s2 = {d.x1, s.x1};
+               s = {s.x0, d.x0};
+               spans.insert(std::next(is), s2);
                return;
             }
          }
          else
          {
-            if (is->x0 >= xb) // Case 6
+            if (s.x0 >= d.x1) // Case 6
                return;
 
-            if (is->x1 <= xb) // Case 4
+            if (s.x1 <= d.x1) // Case 4
             {
-               DrawPart(y, is->x0, is->x1, dp);
-               is = spans.erase(is, std::next(is));
+               DrawPart(y, s, dp);
+               is = spans.erase(is);
                if (is == spans.end())
                   return;
             }
             else // Case 5
             {
-               DrawPart(y, is->x0, xb, dp);
-               is->x0 = xb;
+               DrawPart(y, {s.x0, d.x1}, dp);
+               s.x0 = d.x1;
             }
          }
       }
    }
    void draw(const QPoint &p, const QRect &dr, const QRect &) override {
       for (int y = dr.y(); y < dr.y() + dr.height(); ++y)
-         DrawSegment(y, dr.x(), dr.x() + dr.width(), p);
+         DrawSegment(y, {dr.x(), dr.x() + dr.width()}, p);
    }
 public:
    using ImagePainter::ImagePainter;
@@ -200,10 +201,9 @@ public:
       }
    }
    void end() override {
-      constexpr QRgb black = qRgb(0, 0, 0);
       for (int i=dst.height()-1; i>=0; i--)
-         for (auto &s : qAsConst(Spans[i]))
-            std::fill_n(scanLine(dst, {s.x0, i}), s.x1-s.x0, black);
+         for (auto  &s : qAsConst(Spans)[i])
+            std::fill_n(scanLine(dst, {s.x0, i}), s.size(), qRgb(0,0,0));
    }
 };
 
@@ -279,7 +279,7 @@ class Demo : public QObject {
    FreeSpanDraw span{borderImage, dst};
    const std::array<ImagePainter*, 3> painters{&draw, &zbuf, &span};
    ImagePainter *painter = painters.front();
-   QVector<State> state{100};
+   QVector<State> state{10};
    QBasicTimer timer;
    QElapsedTimer el;
 
