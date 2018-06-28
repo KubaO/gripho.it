@@ -115,39 +115,10 @@ class FreeSpanDraw : public ImagePainter {
    {
       int x0;
       int x1;
-      Span *next;
    };
-   QVector<Span*> FirstSpan{dst.height()};
-   Span* FirstUnusedSpan = {};
+   QVector<QVector<Span>> Spans = QVector<QVector<Span>>(dst.height());
    int sbxa, sbya;
 
-   Span *NewSpan(int x0, int x1, Span *next)
-   {
-      Span *s = FirstUnusedSpan;
-      if (!s)
-         s = new Span{x0, x1, next};
-      else {
-         FirstUnusedSpan = s->next;
-         s->x0 = x0;
-         s->x1 = x1;
-         s->next = next;
-      }
-      return s;
-   }
-   void FreeSpan(Span *s)
-   {
-      s->next = FirstUnusedSpan;
-      FirstUnusedSpan = s;
-   }
-   void FreeSpans(Span *&s0)
-   {
-      while (Span *s = s0)
-      {
-         s0 = s->next;
-         FreeSpan(s);
-      }
-
-   }
    void DrawPart(int y, int x0, int x1)
    {
       auto *wp = imgScanLine(dst, {x0, y});
@@ -155,54 +126,56 @@ class FreeSpanDraw : public ImagePainter {
       memcpy(wp, rp, (x1-x0)*sizeof(QRgb));
    }
    void DrawSegment(int y, int xa, int xb)
-   {
-      for (Span *old={}, *current=FirstSpan[y];
-           current;
-           old=current, current=current->next)
+   {     
+      auto &spans = Spans[y];
+      for (auto is = spans.begin(); is != spans.end(); is++)
       {
-         if (current->x1 <= xa) // Case 1
+         if (is->x1 <= xa) // Case 1
             continue;
 
-         if (current->x0 < xa)
+         if (is->x0 < xa)
          {
-            if (current->x1 <= xb) // Case 2
+            if (is->x1 <= xb) // Case 2
             {
-               DrawPart(y, xa, current->x1);
-               current->x1=xa;
+               DrawPart(y, xa, is->x1);
+               is->x1 = xa;
             }
             else // Case 3
             {
                DrawPart(y, xa, xb);
-               Span *n=NewSpan(xb, current->x1, current->next);
-               current->next = n;
-               current->x1 = xa;
+               std::swap(xa, is->x1);
+               spans.insert(++is, {xb, xa});
                return;
             }
          }
          else
          {
-            if (current->x0 >= xb) // Case 6
+            if (is->x0 >= xb) // Case 6
                return;
 
-            if (current->x1 <= xb) // Case 4
+            if (is->x1 <= xb) // Case 4
             {
-               DrawPart(y, current->x0, current->x1);
-               Span *n=current->next; FreeSpan(current);
-               if (old) old->next=n;
-               else FirstSpan[y]=n;
-               current=n;
-               if (current==NULL) return;
+               DrawPart(y, is->x0, is->x1);
+               is = spans.erase(is, std::next(is));
+               if (is == spans.end())
+                  return;
             }
             else // Case 5
             {
-               DrawPart(y, current->x0, xb);
-               current->x0=xb;
+               DrawPart(y, is->x0, xb);
+               is->x0 = xb;
             }
          }
       }
    }
 public:
    using ImagePainter::ImagePainter;
+   void clear() {
+      for (auto &spans : Spans) {
+         spans.resize(1);
+         spans[0] = {0, dst.width()};
+      }
+   }
    void draw(int xa, int ya) {
       int x0,y0,x1,y1;
       sbxa=xa; sbya=ya;
@@ -218,17 +191,11 @@ public:
             y0++;
          }
    }
-   void Init() {
-      for (auto &span : FirstSpan) {
-         FreeSpans(span);
-         span = NewSpan(0, dst.width(), nullptr);
-      }
-   }
-   void End() {
+   void postClear() {
       constexpr QRgb black = qRgb(0, 0, 0);
       for (int i=dst.height()-1; i>=0; i--)
-         for (Span *s=FirstSpan[i]; s; s=s->next)
-            std::fill_n(imgScanLine(dst, {s->x0, i}), s->x1-s->x0, black);
+         for (auto &s : qAsConst(Spans[i]))
+            std::fill_n(imgScanLine(dst, {s.x0, i}), s.x1-s.x0, black);
    }
 };
 
@@ -304,7 +271,7 @@ int main(int argc, char *argv[])
    FreeSpanDraw span(BImage, dst);
    Display disp;
 
-   constexpr int NPICS = 200;
+   constexpr int NPICS = 10;
    int x[NPICS],y[NPICS],xv[NPICS],yv[NPICS];
 
    for (int i=0; i<NPICS; i++)
@@ -346,10 +313,10 @@ int main(int argc, char *argv[])
             zbuf.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs, i);
          break;
       case 2:
-         span.Init();
+         span.clear();
          for (int i=0; i<NPICS; i++)
             span.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs);
-         span.End();
+         span.postClear();
          break;
       }
       DrawAsciiArt(dst, Info, 1, 4);
