@@ -243,9 +243,10 @@ protected:
    }
 public:
    void setImage(const QImage &input) {
-      img = input.scaled(input.size() * 2);
+      img = input;
       resize(size().expandedTo(img.size()));
-      update();
+      if (!img.isNull())
+         update();
    }
    void setOverlay(const QImage &ovly) {
       overlay = ovly;
@@ -278,9 +279,9 @@ struct State {
 
 class Demo : public QObject {
    Q_OBJECT
-   QImage dst{320, 200, QImage::Format_ARGB32_Premultiplied};
+   QImage dst{640, 400, QImage::Format_ARGB32_Premultiplied};
    const QImage image;
-   const QImage borderImage = WithBorder(image, 3, Qt::red);
+   const QImage borderImage = WithBorder(image, 5, Qt::red);
    DrawPainter draw{image, dst};
    ZBufPainter zbuf{borderImage, dst};
    FreeSpanDraw span{borderImage, dst};
@@ -299,6 +300,8 @@ class Demo : public QObject {
       }
    }
    void update() {
+      emit hasImage({});
+      Q_ASSERT(dst.isDetached());
       painter->begin();
       for (auto &s : state)
          painter->draw(s.pos.toPoint());
@@ -310,7 +313,7 @@ public:
    {
       for (auto &s : state) {
          s.pos = QPointF(rand()%dst.width(), rand()%dst.height());
-         s.vel = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
+         s.vel = {(rand()%2048-1024)/256.0, (rand()%2048-1024)/256.0};
       }
       toggleRunning();
    }
@@ -344,7 +347,7 @@ int main(int argc, char *argv[])
    if (src.isNull())
       qFatal("Cannot load monkey.bmp.");
 
-   Demo demo(std::move(src).convertToFormat(QImage::Format_ARGB32_Premultiplied));
+   Demo demo(src.convertToFormat(QImage::Format_ARGB32_Premultiplied).scaled(src.size()*2));
    Display disp;
 
    QObject::connect(&disp, &Display::hasKey, &demo, &Demo::onKey);
