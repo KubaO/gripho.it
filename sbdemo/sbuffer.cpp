@@ -15,7 +15,7 @@
 
 int lineStep(const QImage &img, int subWidth) {
    Q_ASSERT((img.bytesPerLine() * 8) % img.depth() == 0);
-   return (img.bytesPerLine() * 8) / img.depth() - subWidth;
+   return -subWidth + ((img.height() > 1) ? img.bytesPerLine() * 8 / img.depth() : 0);
 }
 
 template <typename T = QRgb>
@@ -97,8 +97,9 @@ public:
 
 class ZBufPainter : public ImagePainter {
    ZBuffer<quint8> zbuf{dst};
+   QImage fill{dst.width(), 1, dst.format()};
    int z;
-   void draw(const QRect &dstRect, const QRect &srcRect) override {
+   void draw(const QRect &dstRect, const QRect &srcRect, const QImage &src) {
       Q_ASSERT(z < std::numeric_limits<decltype(zbuf)::value_type>::max());
       auto *sp = scanLine(src, srcRect.topLeft());
       auto *dp = scanLine(dst, dstRect.topLeft());
@@ -111,18 +112,25 @@ class ZBufPainter : public ImagePainter {
                *zp = z;
                *dp = *sp;
             }
-            sp++; zp++; dp++; 
+            sp++; zp++; dp++;
          }
          sp += sStep; dp += dStep; zp += dStep; //zbuf has same layout as target image
       }
       ++z;
    }
+   void draw(const QRect &dstRect, const QRect &srcRect) override {
+      draw(dstRect, srcRect, src);
+   }
 public:
-   using ImagePainter::ImagePainter;
+   ZBufPainter(const QImage &src, QImage &dst) : ImagePainter(src, dst) {
+      fill.fill(Qt::black);
+   }
    void begin() override {
       z = 0;
       zbuf.clear();
-      dst.fill(Qt::black);
+   }
+   void end() override {
+      draw(dst.rect(), fill.rect(), fill);
    }
 };
 
