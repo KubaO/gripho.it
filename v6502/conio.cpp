@@ -103,7 +103,7 @@ void CONIO::clearKeyBuffer() {
 }
 
 void CONIO::addKey(int key) {
-   auto end = KEYBUF_END + (key & 0xFF) ? 0 : -1;
+   auto end = KEYBUF_END + ((key & 0xFF) ? 0 : -1);
    if (uint16(KEYBUF_FREE) < end) {
       mem[uint16(KEYBUF_FREE)++] = key & 0xFF;
       if (!(key & 0xFF))
