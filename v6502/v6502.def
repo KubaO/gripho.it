@@ -1,0 +1,6 @@
+LIBRARY    V6502
+DESCRIPTION "Virtual 6502"
+EXPORTS
+   New6502     @2
+   Free6502    @3
+   Execute6502 @4
