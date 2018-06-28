@@ -150,34 +150,34 @@ int Disasm(int pc,char *buffer,unsigned char *p)
    exit(1);
 }
 
-int curchar;
-
-void SpecialWrite(Virtual_6502 *asm_6502_info)
+void SpecialWrite(Virtual_6502 *v, void *u)
 {
-   if (false)
+   int &curchar = *(int*)u;
+   if (true)
       printf("** Special write M[%04X]=%02X **\n",
-             asm_6502_info->special_eai(),
-             asm_6502_info->special_value);
-   if (asm_6502_info->special_eai()==0xC010)
+             v->special_eai(),
+             v->special_value);
+   if (v->special_eai()==0xC010)
    {
       curchar&=0x7F;
    }
 }
 
-void SpecialRead(Virtual_6502 *asm_6502_info)
+void SpecialRead(Virtual_6502 *v, void *u)
 {
-   if (false) {
+   int &curchar = *(int*)u;
+   if (true) {
       printf("** Special read M[%04X] **\n",
-             asm_6502_info->special_eai());
-      asm_6502_info->special_value=*asm_6502_info->special_ea;
+             v->special_eai());
+      v->special_value = *v->special_ea;
    }
-   if (asm_6502_info->special_eai()==0xC000)
+   if (v->special_eai()==0xC000)
    {
-      asm_6502_info->special_value=curchar;
+      v->special_value=curchar;
    }
-   else if (asm_6502_info->special_eai()==0xC010)
+   else if (v->special_eai()==0xC010)
    {
-      curchar&=0x7F;
+      curchar &=0x7F;
    }
 }
 
@@ -187,6 +187,7 @@ int main()
    int romsize;
    int speed=500000;
    int time,ot,wide=1;
+   int curchar = 0;
 
    Virtual_6502 *v6502;
    v6502=New6502();
@@ -195,6 +196,7 @@ int main()
    v6502->special_read=SpecialRead;
    v6502->special_start=v6502->address_space+0xC000;
    v6502->special_end=v6502->special_start+0x0100;
+   v6502->special_user=&curchar;
 
    if ((f=fopen("apple2.img","rb")) || (f=fopen("../v6502/apple2.img","rb")))
    {

@@ -51,7 +51,7 @@ struct V6502 : Virtual_6502 {
       if (ea < special_start || ea >= special_end)
          return *ea;
       special_ea = ea;
-      special_read(this);
+      special_read(this, special_user);
       return *ea = special_value;
    }
 
@@ -62,7 +62,7 @@ struct V6502 : Virtual_6502 {
       } else {
          special_ea = ea;
          special_value = val;
-         special_write(this);
+         special_write(this, special_user);
       }
    }
 

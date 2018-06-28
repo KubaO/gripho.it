@@ -15,15 +15,17 @@ typedef struct VIRTUAL_6502
    // number of 6502 clock ticks to execute
    int ticks;
    // address of write callback function for special addresses
-   void (*special_write)(VIRTUAL_6502*);
+   void (*special_write)(VIRTUAL_6502*, void*);
    // address of read callback function for special addresses
-   void (*special_read)(VIRTUAL_6502*);
+   void (*special_read)(VIRTUAL_6502*, void*);
    // effective address (valid during a callback)
    unsigned char *special_ea;
    // effective address space address (valid during a callback)
    int special_eai() const { return special_ea - address_space; }
    // data value (valid during a callback)
    int special_value;
+   // users opque data, passed directly to the callback
+   void *special_user;
    // initial value for PC (0x0000->0xFFFF)
    int PC;
    // initial value for A  (0x00->0xFF)
