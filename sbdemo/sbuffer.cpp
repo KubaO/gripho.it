@@ -164,7 +164,7 @@ struct SpanDiffInter {
 };
 
 class FreeSpanDraw : public ImagePainter {
-   std::vector<std::vector<Span>> Spans;
+   std::vector<std::vector<Span>> Spans{(size_t)dst.height()};
 
    void DrawPart(const QPoint &d, const QPoint &s, int width)
    {
@@ -199,7 +199,6 @@ class FreeSpanDraw : public ImagePainter {
 public:
    using ImagePainter::ImagePainter;
    void begin() override {
-      Spans.resize(dst.height());
       for (auto &spans : Spans) {
          spans.resize(1);
          spans[0] = {0, dst.width()};
