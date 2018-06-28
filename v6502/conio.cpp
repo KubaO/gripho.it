@@ -8,6 +8,7 @@ struct DrawUnit {
 };
 
 class Display : public QRasterWindow {
+   Q_OBJECT
    QSize m_textSize;
    QSize m_glyphSize;
    QPointF m_glyphPos;
@@ -20,58 +21,100 @@ class Display : public QRasterWindow {
    const QImage &glyph(QChar ch);
    void drawChar(QPainter &, const DrawUnit &);
 
+   bool event(QEvent *ev) override;
    void keyPressEvent(QKeyEvent *ev) override;
    void paintEvent(QPaintEvent *ev) override;
+   void closeEvent(QCloseEvent *ev);
+
 public:
    Display(QWindow *parent = {});
    void setSize(int width, int height);
+   Q_SIGNAL void reqExit();
 };
 
 // CONIO
 
+CONIO *CONIO::instance;
+
 class CONIO::Private {
 public:
+   struct Exiter {
+      Exiter() {
+         instance->d->exitLevel ++;
+      }
+      ~Exiter() {
+         instance->d->exitLevel --;
+         if (instance->d->exitRequested && !instance->d->exitLevel) {
+            delete instance;
+            instance = {};
+            ::exit(0);
+         }
+      }
+   };
+   bool exitRequested = {};
+   int exitLevel = 0;
+   int argc;
+   char argv0[6] = "conio";
+   char *argv[2] = { argv0, nullptr };
+   QGuiApplication app{argc, argv};
    QElapsedTimer timer;
    Display display;
 };
 
-CONIO::CONIO()
+void spin() {
+   QCoreApplication::processEvents();
+   QThread::yieldCurrentThread();
+}
+
+CONIO::CONIO() : d(new Private)
 {
-   new QGuiApplication(argc, argv);
-   d = new Private;
    d->display.show();
    d->timer.start();
    clearKeyBuffer();
+   ports[P_VGA_ISR1] = 0x01;
+   atexit(+[]{
+      delete instance;
+      instance = 0;
+   });
+   QObject::connect(&d->display, &Display::reqExit, []{
+      instance->d->exitRequested = true;
+   });
+}
+
+void CONIO::start() {
+   spin();
 }
 
 CONIO::~CONIO() {
    delete d;
-   delete qApp;
 }
 
 // I/O Ports
 
 int CONIO::inp(unsigned port) {
+   Private::Exiter ex;
    if (port == P_VGA_ISR1) {
       ports[port] ^= 0x09;
+      spin();
    }
    return (port < sizeof(ports)) ? ports[port] : -1;
 }
 
 void CONIO::outp(unsigned port) {
+   Private::Exiter ex;
 }
 
 // Memory
 
 char *CONIO::vm(int addr) {
+   Private::Exiter ex;
    if (addr < 0x500) {
       if (addr == KEYBUF_FREE) {
-         QCoreApplication::processEvents();
-         QThread::yieldCurrentThread();
+         spin();
       }
       else if (addr == TICKS) {
          *(int32_t*)(mem+TICKS) = d->timer.elapsed() / 55;
-         QThread::yieldCurrentThread();
+         spin();
       }
    }
    else if (addr >= 0xB8000 && addr < 0xC0000) {
@@ -196,6 +239,7 @@ void CONIO::int10h(const REGS *in, REGS *out) {
 }
 
 void CONIO::updateScreen() {
+   Private::Exiter ex;
    d->display.update();
 }
 
@@ -270,6 +314,13 @@ Display::Display(QWindow *parent) : QRasterWindow(parent) {
    setSize(40, 25);
 }
 
+bool Display::event(QEvent *ev) {
+   if (ev->type() == QEvent::Close) {
+      closeEvent(static_cast<QCloseEvent*>(ev));
+   }
+   return QRasterWindow::event(ev);
+}
+
 void Display::keyPressEvent(QKeyEvent *ev) {
    CONIO::io().addQtKey(ev->key(), ev->modifiers());
 }
@@ -286,8 +337,14 @@ void Display::paintEvent(QPaintEvent *) {
    }
 }
 
+void Display::closeEvent(QCloseEvent *ev) {
+   emit reqExit();
+}
+
 void Display::setSize(int width, int height) {
    m_textSize = {width, height};
    resize(size().expandedTo({xStep()*width, yStep()*height}));
    update();
 }
+
+#include "conio.moc"

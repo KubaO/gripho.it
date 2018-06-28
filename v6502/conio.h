@@ -6,11 +6,8 @@
 
 class CONIO {
   class Private;
-  int argc;
-  char argv0[1] = "";
-  char *argv[2] = { argv0, nullptr };
-  char mem[0x100000];
   Private *d = {};
+  char mem[0x100000];
   enum {
     KEYMODS     = 0x0417,
     KEYBUF_NEXT = 0x041A,
@@ -26,13 +23,17 @@ class CONIO {
   };
 
   uint16_t &uint16(int addr) { return (uint16_t&)mem[addr]; }
-
+  void start();
+  static CONIO *instance;
 public:
   CONIO();
   ~CONIO();
   static CONIO& io() {
-    static CONIO instance;
-    return instance;
+    if (!instance) {
+      instance = new CONIO;
+      instance->start();
+    }
+    return *instance;
   }
 
   int inp(unsigned port);
