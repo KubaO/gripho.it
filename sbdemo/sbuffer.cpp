@@ -219,42 +219,29 @@ public:
    }
 };
 
-QImage makeOverlay() {
-   QStaticText text("1=Painter<br>2=Z-Buf<br>3=FS-Buf<br>Space=Pause");
-   text.setTextFormat(Qt::RichText);
-   QImage ret(text.size().toSize(), QImage::Format_ARGB32_Premultiplied);
-   ret.fill(Qt::transparent);
-   QPainter p(&ret);
-   p.setPen(Qt::white);
-   p.drawStaticText(0, 0, text);
-   return ret;
-}
-
 class Display : public QRasterWindow {
    Q_OBJECT
-   QImage img, overlay;
+   QImage img;
+   QStaticText text;
 protected:
    void paintEvent(QPaintEvent *) override {
       QPainter p(this);
       p.setCompositionMode(QPainter::CompositionMode_Source);
       p.drawImage(0, 0, img);
       p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-      p.drawImage(2, 2, overlay);
+      p.setPen(Qt::white);
+      p.drawStaticText(2, 2, text);
    }
    void keyPressEvent(QKeyEvent *k) override {
       emit hasKey(k->key());
    }
 public:
+   Display(const QString &text) : text(text) {}
    void setImage(const QImage &input) {
       img = input;
       resize(size().expandedTo(img.size()));
       if (!img.isNull())
          update();
-   }
-   void setOverlay(const QImage &ovly) {
-      overlay = ovly;
-      resize(size().expandedTo(overlay.size()));
-      update();
    }
    Q_SIGNAL void hasKey(int);
 };
@@ -351,11 +338,10 @@ int main(int argc, char *argv[])
       qFatal("Cannot load monkey.bmp.");
 
    Demo demo(src.convertToFormat(QImage::Format_ARGB32_Premultiplied).scaled(src.size()*2));
-   Display disp;
+   Display disp("<qt>1=Painter<br>2=Z-Buf<br>3=FS-Buf<br>Space=Pause</qt>");
 
    QObject::connect(&disp, &Display::hasKey, &demo, &Demo::onKey);
    QObject::connect(&demo, &Demo::hasImage, &disp, &Display::setImage);
-   disp.setOverlay(makeOverlay());
    disp.show();
    return app.exec();
 }
