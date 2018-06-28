@@ -7,6 +7,7 @@
 ** or mailto:agriff@tin.it 
 */
 #include <QtGui>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -17,13 +18,13 @@ int lineStep(const QImage &img, int subWidth) {
 }
 
 template <typename T = QRgb>
-const T *imgScanLine (const QImage &dst, const QPoint pos) {
+const T *scanLine (const QImage &dst, const QPoint pos) {
    return reinterpret_cast<const T*>(dst.scanLine(pos.y()) + pos.x()*sizeof(T));
 }
 
 template <typename T = QRgb>
-T *imgScanLine (QImage &dst, const QPoint pos) {
-   return const_cast<T*>(imgScanLine(const_cast<const QImage &>(dst), pos));
+T *scanLine (QImage &dst, const QPoint pos) {
+   return const_cast<T*>(scanLine(const_cast<const QImage &>(dst), pos));
 }
 
 template <typename T = int>
@@ -49,9 +50,9 @@ public:
    }
 };
 
-QImage WithBorder(QImage img, int width) {
+QImage WithBorder(QImage img, int width, const QColor &color = Qt::black) {
    QPainter p(&img);
-   QPen pen(Qt::black);
+   QPen pen(color);
    pen.setWidth(width);
    p.setPen(pen);
    qreal a = width/2;
@@ -65,15 +66,22 @@ protected:
    QImage &dst;
 public:
    ImagePainter(const QImage &src, QImage &dst) : src(src), dst(dst) {}
+   virtual void begin() {}
+   virtual void draw(const QPoint p, int n) = 0;
+   virtual void end() {}
    virtual ~ImagePainter() {}
 };
 
 class DrawPainter : public ImagePainter {
 public:
    using ImagePainter::ImagePainter;
-   void draw(int x, int y) {
+   void begin() override {
+      dst.fill(Qt::transparent);
+   }
+   void draw(const QPoint pt, int) override {
       QPainter p(&dst);
-      p.drawImage(x, y, src);
+      p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
+      p.drawImage(pt, src);
    }
 };
 
@@ -81,16 +89,19 @@ class ZBufPainter : public ImagePainter {
    ZBuffer<quint8> zbuf{dst.width(), dst.height()};
 public:
    using ImagePainter::ImagePainter;
-   void draw(int x, int y, int z) {
-      QRect dstRect = src.rect().adjusted(x, y, x, y);
-      dstRect = dstRect.intersected(dst.rect());
+   void begin() override {
+      zbuf.clear();
+      dst.fill(Qt::black);
+   }
+   void draw(const QPoint p, int z) override {
+      const QRect dstRect = src.rect().adjusted(p.x(), p.y(), p.x(), p.y()).intersected(dst.rect());
       if (dstRect.isEmpty())
          return;
 
-      QRect srcRect = dstRect.adjusted(-x, -y, -x, -y);
+      QRect srcRect = dstRect.adjusted(-p.x(), -p.y(), -p.x(), -p.y());
       srcRect = srcRect.normalized();
 
-      auto *dp = imgScanLine(dst, dstRect.topLeft());
+      auto *dp = scanLine(dst, dstRect.topLeft());
       auto *zp = zbuf.scanLine(dstRect.topLeft());
       int const dStep = lineStep(dst, srcRect.width());
       int const zStep = zbuf.lineStep(srcRect.width());
@@ -121,9 +132,9 @@ class FreeSpanDraw : public ImagePainter {
 
    void DrawPart(int y, int x0, int x1)
    {
-      auto *wp = imgScanLine(dst, {x0, y});
-      auto *rp = imgScanLine(src, {x0-sbxa, y-sbya});
-      memcpy(wp, rp, (x1-x0)*sizeof(QRgb));
+      auto *wp = scanLine(dst, {x0, y});
+      auto *rp = scanLine(src, {x0-sbxa, y-sbya});
+      std::copy(rp, rp+(x1-x0), wp);
    }
    void DrawSegment(int y, int xa, int xb)
    {     
@@ -170,16 +181,16 @@ class FreeSpanDraw : public ImagePainter {
    }
 public:
    using ImagePainter::ImagePainter;
-   void clear() {
+   void begin() override {
       for (auto &spans : Spans) {
          spans.resize(1);
          spans[0] = {0, dst.width()};
       }
    }
-   void draw(int xa, int ya) {
+   void draw(const QPoint p, int) override {
       int x0,y0,x1,y1;
-      sbxa=xa; sbya=ya;
-      x0=xa; y0=ya; x1=x0+src.width(); y1=y0+src.height();
+      sbxa=p.x(); sbya=p.y();
+      x0=p.x(); y0=p.y(); x1=x0+src.width(); y1=y0+src.height();
       if (x0<0) x0=0;
       if (y0<0) y0=0;
       if (x1>dst.width()) x1=dst.width();
@@ -191,11 +202,11 @@ public:
             y0++;
          }
    }
-   void postClear() {
+   void end() override {
       constexpr QRgb black = qRgb(0, 0, 0);
       for (int i=dst.height()-1; i>=0; i--)
          for (auto &s : qAsConst(Spans[i]))
-            std::fill_n(imgScanLine(dst, {s.x0, i}), s.x1-s.x0, black);
+            std::fill_n(scanLine(dst, {s.x0, i}), s.x1-s.x0, black);
    }
 };
 
@@ -222,7 +233,7 @@ const char *Info[]={
 
 void DrawAsciiArt(QImage &dst, const char *info[], int x, int y) {
    for (int i=0; info[i][0]!='\0'; i++) {
-      auto *dp = imgScanLine(dst, {x, y+i});
+      auto *dp = scanLine(dst, {x, y+i});
       for (int j=0; info[i][j]!='\0'; j++, dp++)
          if (info[i][j]=='x')
             *dp = qRgba(255, 255, 255, 255);
@@ -263,25 +274,25 @@ int main(int argc, char *argv[])
    if (Src.isNull())
       qFatal("Cannot load monkey.bmp.");
    QImage const Image = std::move(Src).convertToFormat(QImage::Format_ARGB32_Premultiplied);
-   QImage const BImage = WithBorder(Image, 3);
+   QImage const BImage = WithBorder(Image, 3, Qt::red);
 
    QImage dst{320, 200, QImage::Format_ARGB32_Premultiplied};
    DrawPainter draw(Image, dst);
    ZBufPainter zbuf(BImage, dst);
    FreeSpanDraw span(BImage, dst);
+   std::array<ImagePainter*, 3> painters{&draw, &zbuf, &span};
    Display disp;
 
    constexpr int NPICS = 10;
-   int x[NPICS],y[NPICS],xv[NPICS],yv[NPICS];
+   QPointF pos[NPICS], vel[NPICS];
 
-   for (int i=0; i<NPICS; i++)
-   {
-      x[i]=(rand()%320)<<8; y[i]=(rand()%200)<<8;
-      xv[i]=rand()%1024-512; yv[i]=rand()%1024-512;
-   }
+   auto const offset = Image.rect().center();
+   for (auto &p : pos)
+      p = QPointF(rand()%dst.width(), rand()%dst.height()) - offset;
+   for (auto &v : vel)
+      v = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
+   const QRectF posRect = dst.rect().adjusted(-offset.x(), -offset.y(), -offset.x(), -offset.y());
 
-   int xoffs=Image.width()/2;
-   int yoffs=Image.height()/2;
    int method=0;
    QObject::connect(&disp, &Display::reqMethod, [&](int m){ method = m; });
 
@@ -291,34 +302,19 @@ int main(int argc, char *argv[])
    QObject::connect(&t, &QTimer::timeout, [&]{
       for (int i=0; i<NPICS; i++)
       {
-         x[i]+=xv[i];
-         if (x[i]<0 || x[i]>320<<8)
-            xv[i]=-xv[i];
-         y[i]+=yv[i];
-         if (y[i]<0 || y[i]>200<<8)
-            yv[i]=-yv[i];
+         auto &p = pos[i], &v = vel[i];
+         p += v;
+         if (!posRect.contains(p.x(), 0))
+            v.setX(-v.x());
+         if (!posRect.contains(0, p.y()))
+            v.setY(-v.y());
       }
 
-      switch(method)
-      {
-      case 0:
-         dst.fill(Qt::black);
-         for (int i=NPICS-1; i>=0; i--)
-            draw.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs);
-         break;
-      case 1:
-         zbuf.clear();
-         dst.fill(Qt::black);
-         for (int i=0; i<NPICS; i++)
-            zbuf.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs, i);
-         break;
-      case 2:
-         span.clear();
-         for (int i=0; i<NPICS; i++)
-            span.draw((x[i]>>8)-xoffs, (y[i]>>8)-yoffs);
-         span.postClear();
-         break;
-      }
+      auto &painter = *painters[method];
+      painter.begin();
+      for (int i=0; i<NPICS; i++)
+         painter.draw(pos[i].toPoint(), i);
+      painter.end();
       DrawAsciiArt(dst, Info, 1, 4);
       disp.setImage(dst);
    });
