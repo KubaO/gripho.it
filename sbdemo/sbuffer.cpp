@@ -64,24 +64,32 @@ class ImagePainter {
 protected:
    const QImage src;
    QImage &dst;
+   virtual void draw(const QPoint &topLeft, const QRect &dstRect, const QRect &srcRect) = 0;
 public:
    ImagePainter(const QImage &src, QImage &dst) : src(src), dst(dst) {}
    virtual void begin() {}
-   virtual void draw(const QPoint p) = 0;
    virtual void end() {}
    virtual ~ImagePainter() {}
+   void draw(const QPoint &center) {
+      auto const p = center - src.rect().center();
+      auto const dstRect = QRect(p, src.size()).intersected(dst.rect());
+      if (!dstRect.isEmpty()) {
+         auto const srcRect = src.rect().intersected({-p, dst.size()});
+         draw(p, dstRect, srcRect);
+      }
+   }
 };
 
 class DrawPainter : public ImagePainter {
+   void draw(const QPoint &, const QRect &dstRect, const QRect &srcRect) override {
+      QPainter p(&dst);
+      p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
+      p.drawImage(dstRect, src, srcRect);
+   }
 public:
    using ImagePainter::ImagePainter;
    void begin() override {
       dst.fill(Qt::transparent);
-   }
-   void draw(const QPoint pt) override {
-      QPainter p(&dst);
-      p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
-      p.drawImage(pt, src);
    }
 };
 
@@ -95,27 +103,22 @@ public:
       zbuf.clear();
       dst.fill(Qt::black);
    }
-   void draw(const QPoint p) override {
-      const QRect dstRect = src.rect().adjusted(p.x(), p.y(), p.x(), p.y()).intersected(dst.rect());
-      if (dstRect.isEmpty())
-         return;
-
-      QRect srcRect = dstRect.adjusted(-p.x(), -p.y(), -p.x(), -p.y());
-      srcRect = srcRect.normalized();
-
+   void draw(const QPoint &, const QRect &dstRect, const QRect &srcRect) override {
+      auto *sp = scanLine(src, srcRect.topLeft());
       auto *dp = scanLine(dst, dstRect.topLeft());
       auto *zp = zbuf.scanLine(dstRect.topLeft());
-      int const dStep = lineStep(dst, srcRect.width());
-      int const zStep = zbuf.lineStep(srcRect.width());
-      for (int y = srcRect.top(); y < srcRect.bottom()+1; ++y) {
-         for (int x = srcRect.left(); x < srcRect.right()+1; ++x) {
+      const int sStep = lineStep(src, srcRect.width());
+      const int dStep = lineStep(dst, dstRect.width());
+      const int zStep = zbuf.lineStep(dstRect.width());
+      for (int i = dstRect.height(); i; i--) {
+         for (int j = dstRect.width(); j; j--) {
             if (*zp > z) {
                *zp = z;
-               *dp = src.pixel(x, y);
+               *dp = *sp;
             }
-            dp ++; zp++;
+            sp++; zp++; dp++; 
          }
-         dp += dStep; zp += zStep;
+         sp += sStep; dp += dStep; zp += zStep;
       }
       ++z;
    }
@@ -128,15 +131,15 @@ class FreeSpanDraw : public ImagePainter {
       int x1;
    };
    QVector<QVector<Span>> Spans = QVector<QVector<Span>>(dst.height());
-   int sbxa, sbya;
 
-   void DrawPart(int y, int x0, int x1)
+
+   void DrawPart(int y, int x0, int x1, const QPoint &dPos)
    {
-      auto *wp = scanLine(dst, {x0, y});
-      auto *rp = scanLine(src, {x0-sbxa, y-sbya});
-      std::copy(rp, rp+(x1-x0), wp);
+      auto *dp = scanLine(dst, {x0, y});
+      auto *sp = scanLine(src, QPoint{x0, y}-dPos);
+      std::copy(sp, sp+(x1-x0), dp);
    }
-   void DrawSegment(int y, int xa, int xb)
+   void DrawSegment(int y, int xa, int xb, const QPoint &dp)
    {
       auto &spans = Spans[y];
       for (auto is = spans.begin(); is != spans.end(); is++)
@@ -148,12 +151,12 @@ class FreeSpanDraw : public ImagePainter {
          {
             if (is->x1 <= xb) // Case 2
             {
-               DrawPart(y, xa, is->x1);
+               DrawPart(y, xa, is->x1, dp);
                is->x1 = xa;
             }
             else // Case 3
             {
-               DrawPart(y, xa, xb);
+               DrawPart(y, xa, xb, dp);
                std::swap(xa, is->x1);
                spans.insert(++is, {xb, xa});
                return;
@@ -166,18 +169,22 @@ class FreeSpanDraw : public ImagePainter {
 
             if (is->x1 <= xb) // Case 4
             {
-               DrawPart(y, is->x0, is->x1);
+               DrawPart(y, is->x0, is->x1, dp);
                is = spans.erase(is, std::next(is));
                if (is == spans.end())
                   return;
             }
             else // Case 5
             {
-               DrawPart(y, is->x0, xb);
+               DrawPart(y, is->x0, xb, dp);
                is->x0 = xb;
             }
          }
       }
+   }
+   void draw(const QPoint &p, const QRect &dr, const QRect &) override {
+      for (int y = dr.y(); y < dr.y() + dr.height(); ++y)
+         DrawSegment(y, dr.x(), dr.x() + dr.width(), p);
    }
 public:
    using ImagePainter::ImagePainter;
@@ -186,21 +193,6 @@ public:
          spans.resize(1);
          spans[0] = {0, dst.width()};
       }
-   }
-   void draw(const QPoint p) override {
-      int x0,y0,x1,y1;
-      sbxa=p.x(); sbya=p.y();
-      x0=p.x(); y0=p.y(); x1=x0+src.width(); y1=y0+src.height();
-      if (x0<0) x0=0;
-      if (y0<0) y0=0;
-      if (x1>dst.width()) x1=dst.width();
-      if (y1>dst.height()) y1=dst.height();
-      if (x0<x1)
-         while (y0<y1)
-         {
-            DrawSegment(y0, x0, x1);
-            y0++;
-         }
    }
    void end() override {
       constexpr QRgb black = qRgb(0, 0, 0);
@@ -269,8 +261,8 @@ struct State {
    QPointF pos, vel;
    void advance(qreal t, const QRectF &rect) {
       pos += vel * t;
-      bounce(pos.rx(), vel.rx(), rect.left(), rect.right());
-      bounce(pos.ry(), vel.ry(), rect.top(), rect.bottom());
+      bounce(pos.rx(), vel.rx(), rect.x(), rect.x() + rect.width());
+      bounce(pos.ry(), vel.ry(), rect.y(), rect.y() + rect.height());
    }
 };
 
@@ -297,7 +289,6 @@ int main(int argc, char *argv[])
       s.pos = QPointF(rand()%dst.width(), rand()%dst.height()) - offset;
       s.vel = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
    }
-   const QRectF posRect = dst.rect().adjusted(-offset.x(), -offset.y(), -offset.x(), -offset.y());
 
    int method=0;
    QObject::connect(&disp, &Display::reqMethod, [&](size_t m){
@@ -312,7 +303,7 @@ int main(int argc, char *argv[])
    QObject::connect(&timer, &QTimer::timeout, [&]{
       qreal const t = el.restart() / (qreal)10;
       for (auto &s : state)
-         s.advance(t, posRect);
+         s.advance(t, dst.rect());
 
       auto &painter = *painters[method];
       painter.begin();
