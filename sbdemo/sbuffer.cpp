@@ -210,58 +210,44 @@ public:
    }
 };
 
-const char *Info[]={
-   "  xxx        xxxx   xxx  xxx x   x xxxxx xxxx xxxx",
-   " x  xx xxxx  x   x x   x  x  xx  x   x   x    x   x",
-   " x x x       xxxx  xxxxx  x  x x x   x   xxx  xxxx",
-   " xx  x xxxx  x     x   x  x  x  xx   x   x    x   x",
-   "  xxx        x     x   x xxx x   x   x   xxxx x   x",
-   " ",
-   "   x         xxxxx     xxxx  x   x xxxx",
-   "  xx   xxxx     x      x   x x   x x",
-   "   x           x   xxx xxxx  x   x xxx",
-   "   x   xxxx   x        x   x x   x x",
-   "  xxx        xxxxx     xxxx   xxx  x",
-   " ",
-   " xxxx        xxxxx  xxxx     xxxx  x   x xxxx",
-   "     x xxxx  x     x         x   x x   x x",
-   "  xxx        xxx    xxx  xxx xxxx  x   x xxx",
-   " x     xxxx  x         x     x   x x   x x",
-   " xxxxx       x     xxxx      xxxx   xxx  x",
-   ""
-};
-
-void DrawAsciiArt(QImage &dst, const char *info[], int x, int y) {
-   for (int i=0; info[i][0]!='\0'; i++) {
-      auto *dp = scanLine(dst, {x, y+i});
-      for (int j=0; info[i][j]!='\0'; j++, dp++)
-         if (info[i][j]=='x')
-            *dp = qRgba(255, 255, 255, 255);
-   }
+QImage makeOverlay() {
+   QStaticText text;
+   text.setTextFormat(Qt::RichText);
+   text.setText("1=Painter<br>2=Z-Buf<br>3=FS-Buf");
+   QImage ret(text.size().toSize(), QImage::Format_ARGB32_Premultiplied);
+   ret.fill(Qt::transparent);
+   QPainter p(&ret);
+   p.setPen(Qt::white);
+   p.drawStaticText(0, 0, text);
+   return ret;
 }
 
 class Display : public QRasterWindow {
    Q_OBJECT
-   QImage img{320*2, 200*2, QImage::Format_ARGB32_Premultiplied};
+   QImage img, overlay;
+   QPoint overlayPos;
 protected:
    void paintEvent(QPaintEvent *) override {
       QPainter p(this);
       p.fillRect(QRect({}, size()), Qt::black);
       p.drawImage(0, 0, img);
+      p.drawImage(overlayPos, overlay);
    }
    void keyPressEvent(QKeyEvent *k) override {
-      switch (k->key()) {
-      case Qt::Key_0: return reqMethod(0);
-      case Qt::Key_1: return reqMethod(1);
-      case Qt::Key_2: return reqMethod(2);
-      }
+      int m = k->key() - Qt::Key_0;
+      if (m >= 0 && m < 10)
+         emit reqMethod(m);
    }
 public:
-   Display() {
-      resize(img.size());
-   }
    void setImage(const QImage &input) {
-      img = input.scaled(img.size());
+      img = input.scaled(input.size() * 2);
+      resize(size().expandedTo(img.size()));
+      update();
+   }
+   void setOverlay(const QImage &ovly, const QPoint p) {
+      overlay = ovly;
+      overlayPos = p;
+      resize(size().expandedTo(overlay.size()));
       update();
    }
    Q_SIGNAL void reqMethod(int);
@@ -294,7 +280,9 @@ int main(int argc, char *argv[])
    const QRectF posRect = dst.rect().adjusted(-offset.x(), -offset.y(), -offset.x(), -offset.y());
 
    int method=0;
-   QObject::connect(&disp, &Display::reqMethod, [&](int m){ method = m; });
+   QObject::connect(&disp, &Display::reqMethod, [&](size_t m){
+      if (m >= 1 && m <= painters.size()) method = m-1;
+   });
 
    QTimer t;
    t.setInterval(10);
@@ -315,10 +303,10 @@ int main(int argc, char *argv[])
       for (int i=0; i<NPICS; i++)
          painter.draw(pos[i].toPoint(), i);
       painter.end();
-      DrawAsciiArt(dst, Info, 1, 4);
       disp.setImage(dst);
    });
 
+   disp.setOverlay(makeOverlay(), {2, 2});
    disp.show();
    return app.exec();
 }
