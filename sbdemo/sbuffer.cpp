@@ -65,7 +65,7 @@ class ImagePainter {
 protected:
    const QImage src;
    QImage &dst;
-   virtual void draw(const QPoint &topLeft, const QRect &dstRect, const QRect &srcRect) = 0;
+   virtual void draw(const QRect &dstRect, const QRect &srcRect) = 0;
 public:
    ImagePainter(const QImage &src, QImage &dst) : src(src), dst(dst) {}
    virtual void begin() {}
@@ -76,13 +76,13 @@ public:
       auto const dstRect = QRect(p, src.size()).intersected(dst.rect());
       if (!dstRect.isEmpty()) {
          auto const srcRect = src.rect().intersected({-p, dst.size()});
-         draw(p, dstRect, srcRect);
+         draw(dstRect, srcRect);
       }
    }
 };
 
 class DrawPainter : public ImagePainter {
-   void draw(const QPoint &, const QRect &dstRect, const QRect &srcRect) override {
+   void draw(const QRect &dstRect, const QRect &srcRect) override {
       QPainter p(&dst);
       p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
       p.drawImage(dstRect, src, srcRect);
@@ -102,14 +102,7 @@ public:
 class ZBufPainter : public ImagePainter {
    ZBuffer<quint8> zbuf{dst.width(), dst.height()};
    int z;
-public:
-   using ImagePainter::ImagePainter;
-   void begin() override {
-      z = 0;
-      zbuf.clear();
-      dst.fill(Qt::black);
-   }
-   void draw(const QPoint &, const QRect &dstRect, const QRect &srcRect) override {
+   void draw(const QRect &dstRect, const QRect &srcRect) override {
       auto *sp = scanLine(src, srcRect.topLeft());
       auto *dp = scanLine(dst, dstRect.topLeft());
       auto *zp = zbuf.scanLine(dstRect.topLeft());
@@ -127,6 +120,13 @@ public:
          sp += sStep; dp += dStep; zp += zStep;
       }
       ++z;
+   }
+public:
+   using ImagePainter::ImagePainter;
+   void begin() override {
+      z = 0;
+      zbuf.clear();
+      dst.fill(Qt::black);
    }
 };
 
@@ -170,35 +170,35 @@ struct SpanDiffInter {
 class FreeSpanDraw : public ImagePainter {
    std::vector<std::vector<Span>> Spans;
 
-   void DrawPart(int y, const Span &s, const QPoint &dPos)
+   void DrawPart(const QPoint &d, const QPoint &s, int width)
    {
-      auto *dp = scanLine(dst, {s.x0, y});
-      auto *sp = scanLine(src, QPoint{s.x0, y}-dPos);
-      std::copy(sp, sp+s.size(), dp);
+      auto *dp = scanLine(dst, d);
+      auto *sp = scanLine(src, s);
+      std::copy(sp, sp+width, dp);
    }
-   void DrawSegment(int y, const Span &d, const QPoint &dp)
+   void DrawSegment(const QPoint &dp, const QPoint &sp, int width)
    {
-      auto &spans = Spans[y];
-      for (auto is = std::lower_bound(spans.begin(), spans.end(), d); is != spans.end(); )
+      const Span ds{dp.x(), dp.x() + width};
+      auto &spans = Spans[dp.y()];
+      for (auto is = std::lower_bound(spans.begin(), spans.end(), ds); is != spans.end(); )
       {
-         SpanDiffInter const ss{*is, d};
+         SpanDiffInter const ss{*is, ds};
          if (ss.after) break;
          if (!ss.inter.isEmpty())
-            DrawPart(y, ss.inter, dp);
-         if (ss.diff[0].isEmpty())
-            is = spans.erase(is);
-         else {
+            DrawPart({ss.inter.x0, dp.y()}, {sp.x()+ss.inter.x0-dp.x(), sp.y()}, ss.inter.size());
+         if (!ss.diff[0].isEmpty()) {
             *is++ = ss.diff[0];
             if (!ss.diff[1].isEmpty()) {
                is = spans.insert(is, ss.diff[1]);
                is++;
             }
-         }
+         } else
+            is = spans.erase(is);
       }
    }
-   void draw(const QPoint &p, const QRect &dr, const QRect &) override {
-      for (int y = dr.y(); y < dr.y() + dr.height(); ++y)
-         DrawSegment(y, {dr.x(), dr.x() + dr.width()}, p);
+   void draw(const QRect &dr, const QRect &sr) override {
+      for (int i = dr.height()-1; i>=0; i--)
+         DrawSegment({dr.x(), dr.y()+i}, {sr.x(), sr.y()+i}, dr.width());
    }
 public:
    using ImagePainter::ImagePainter;
