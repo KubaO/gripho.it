@@ -67,7 +67,7 @@ protected:
 public:
    ImagePainter(const QImage &src, QImage &dst) : src(src), dst(dst) {}
    virtual void begin() {}
-   virtual void draw(const QPoint p, int n) = 0;
+   virtual void draw(const QPoint p) = 0;
    virtual void end() {}
    virtual ~ImagePainter() {}
 };
@@ -78,7 +78,7 @@ public:
    void begin() override {
       dst.fill(Qt::transparent);
    }
-   void draw(const QPoint pt, int) override {
+   void draw(const QPoint pt) override {
       QPainter p(&dst);
       p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
       p.drawImage(pt, src);
@@ -87,13 +87,15 @@ public:
 
 class ZBufPainter : public ImagePainter {
    ZBuffer<quint8> zbuf{dst.width(), dst.height()};
+   int z;
 public:
    using ImagePainter::ImagePainter;
    void begin() override {
+      z = 0;
       zbuf.clear();
       dst.fill(Qt::black);
    }
-   void draw(const QPoint p, int z) override {
+   void draw(const QPoint p) override {
       const QRect dstRect = src.rect().adjusted(p.x(), p.y(), p.x(), p.y()).intersected(dst.rect());
       if (dstRect.isEmpty())
          return;
@@ -115,9 +117,7 @@ public:
          }
          dp += dStep; zp += zStep;
       }
-   }
-   void clear() {
-      zbuf.clear();
+      ++z;
    }
 };
 
@@ -137,7 +137,7 @@ class FreeSpanDraw : public ImagePainter {
       std::copy(rp, rp+(x1-x0), wp);
    }
    void DrawSegment(int y, int xa, int xb)
-   {     
+   {
       auto &spans = Spans[y];
       for (auto is = spans.begin(); is != spans.end(); is++)
       {
@@ -187,7 +187,7 @@ public:
          spans[0] = {0, dst.width()};
       }
    }
-   void draw(const QPoint p, int) override {
+   void draw(const QPoint p) override {
       int x0,y0,x1,y1;
       sbxa=p.x(); sbya=p.y();
       x0=p.x(); y0=p.y(); x1=x0+src.width(); y1=y0+src.height();
@@ -253,6 +253,19 @@ public:
    Q_SIGNAL void reqMethod(int);
 };
 
+struct State {
+   QPointF pos, vel;
+};
+
+State advance(State s, const QRectF &rect) {
+   s.pos += s.vel;
+   if (!rect.contains(s.pos.x(), 0))
+      s.vel.rx() *= -1;
+   if (!rect.contains(0, s.pos.y()))
+      s.vel.ry() *= -1;
+   return s;
+}
+
 int main(int argc, char *argv[])
 {
    QGuiApplication app(argc, argv);
@@ -269,14 +282,13 @@ int main(int argc, char *argv[])
    std::array<ImagePainter*, 3> painters{&draw, &zbuf, &span};
    Display disp;
 
-   constexpr int NPICS = 10;
-   QPointF pos[NPICS], vel[NPICS];
+   State state[10];
 
    auto const offset = Image.rect().center();
-   for (auto &p : pos)
-      p = QPointF(rand()%dst.width(), rand()%dst.height()) - offset;
-   for (auto &v : vel)
-      v = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
+   for (auto &s : state) {
+      s.pos = QPointF(rand()%dst.width(), rand()%dst.height()) - offset;
+      s.vel = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
+   }
    const QRectF posRect = dst.rect().adjusted(-offset.x(), -offset.y(), -offset.x(), -offset.y());
 
    int method=0;
@@ -288,20 +300,13 @@ int main(int argc, char *argv[])
    t.setInterval(10);
    t.start();
    QObject::connect(&t, &QTimer::timeout, [&]{
-      for (int i=0; i<NPICS; i++)
-      {
-         auto &p = pos[i], &v = vel[i];
-         p += v;
-         if (!posRect.contains(p.x(), 0))
-            v.setX(-v.x());
-         if (!posRect.contains(0, p.y()))
-            v.setY(-v.y());
-      }
+      for (auto &s : state)
+         s = advance(s, posRect);
 
       auto &painter = *painters[method];
       painter.begin();
-      for (int i=0; i<NPICS; i++)
-         painter.draw(pos[i].toPoint(), i);
+      for (auto &s : state)
+         painter.draw(s.pos.toPoint());
       painter.end();
       disp.setImage(dst);
    });
