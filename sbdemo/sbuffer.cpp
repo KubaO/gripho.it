@@ -18,14 +18,12 @@ int lineStep(const QImage &img, int subWidth) {
    return -subWidth + ((img.height() > 1) ? img.bytesPerLine() * 8 / img.depth() : 0);
 }
 
-template <typename T = QRgb>
-const T *scanLine (const QImage &dst, const QPoint pos) {
-   return reinterpret_cast<const T*>(dst.scanLine(pos.y()) + pos.x()*sizeof(T));
+const QRgb *scanLine (const QImage &dst, const QPoint pos) {
+   return reinterpret_cast<const QRgb*>(dst.scanLine(pos.y()) + pos.x()*sizeof(QRgb));
 }
 
-template <typename T = QRgb>
-T *scanLine (QImage &dst, const QPoint pos) {
-   return const_cast<T*>(scanLine(const_cast<const QImage &>(dst), pos));
+QRgb *scanLine (QImage &dst, const QPoint pos) {
+   return reinterpret_cast<QRgb*>(dst.scanLine(pos.y()) + pos.x()*sizeof(QRgb));
 }
 
 template <typename T = int>
