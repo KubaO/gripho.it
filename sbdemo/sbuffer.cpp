@@ -136,17 +136,18 @@ struct Span {
    Span(int x0, int x1) : x0(x0), x1(x1) {}
    constexpr bool isEmpty() const { return x1 == x0; }
    constexpr int size() const { return x1 - x0; }
+   bool operator<(const Span &o) const { return x1 <= o.x0; }
 };
 
 struct SpanDiffInter {
    Span inter;    // a intersection b
    Span diff[2];  // a difference b
+   bool after;    // a after b
    explicit SpanDiffInter(const Span &a, const Span &b) {
-      if (a.x1 <= b.x0 ||             // aa  bb  a1<=b0
-          b.x1 <= a.x0) {             // bb  aa  a0>=b1
+      Q_ASSERT(!(a.x1 <= b.x0));      // aa  bb  a1<=b0
+      if ((after = (b.x1 <= a.x0))) { // bb  aa  a0>=b1
          diff[0] = a;
-      }
-      else if (a.x0 < b.x0) {
+      } else if (a.x0 < b.x0) {
          if (a.x1 <= b.x1) {          // aa##bb  a0<b0,  a1<b1
             diff[0] = {a.x0, b.x0};   // aa##    a0<b0,  a1==b1
             inter   = {b.x0, a.x1};
@@ -178,9 +179,10 @@ class FreeSpanDraw : public ImagePainter {
    void DrawSegment(int y, const Span &d, const QPoint &dp)
    {
       auto &spans = Spans[y];
-      for (auto is = spans.begin(); is != spans.end(); )
+      for (auto is = std::lower_bound(spans.begin(), spans.end(), d); is != spans.end(); )
       {
          SpanDiffInter const ss{*is, d};
+         if (ss.after) break;
          if (!ss.inter.isEmpty())
             DrawPart(y, ss.inter, dp);
          if (ss.diff[0].isEmpty())
