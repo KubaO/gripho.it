@@ -209,7 +209,7 @@ public:
 };
 
 QImage makeOverlay() {
-   QStaticText text("1=Painter<br>2=Z-Buf<br>3=FS-Buf");
+   QStaticText text("1=Painter<br>2=Z-Buf<br>3=FS-Buf<br>Space=Pause");
    text.setTextFormat(Qt::RichText);
    QImage ret(text.size().toSize(), QImage::Format_ARGB32_Premultiplied);
    ret.fill(Qt::transparent);
@@ -231,9 +231,7 @@ protected:
       p.drawImage(2, 2, overlay);
    }
    void keyPressEvent(QKeyEvent *k) override {
-      int m = k->key() - Qt::Key_0;
-      if (m >= 0 && m < 10)
-         emit reqMethod(m);
+      emit hasKey(k->key());
    }
 public:
    void setImage(const QImage &input) {
@@ -246,7 +244,7 @@ public:
       resize(size().expandedTo(overlay.size()));
       update();
    }
-   Q_SIGNAL void reqMethod(int);
+   Q_SIGNAL void hasKey(int);
 };
 
 inline void bounce(qreal &x, qreal &v, qreal const left, qreal const right) {
@@ -285,14 +283,14 @@ class Demo : public QObject {
    QElapsedTimer el;
 
    void timerEvent(QTimerEvent *ev) override {
-      if (ev->timerId() == timer.timerId() && painter)
-         tick();
+      if (ev->timerId() == timer.timerId() && painter) {
+         qreal const t = el.restart() / (qreal)10;
+         for (auto &s : state)
+            s.advance(t, dst.rect());
+         update();
+      }
    }
-   void tick() {
-      qreal const t = el.restart() / (qreal)10;
-      for (auto &s : state)
-         s.advance(t, dst.rect());
-
+   void update() {
       painter->begin();
       for (auto &s : state)
          painter->draw(s.pos.toPoint());
@@ -306,12 +304,27 @@ public:
          s.pos = QPointF(rand()%dst.width(), rand()%dst.height());
          s.vel = {(rand()%1024-512)/256.0, (rand()%1024-512)/256.0};
       }
-      timer.start(10, this);
-      el.start();
+      toggleRunning();
+   }
+   void onKey(int key) {
+      int m = key - Qt::Key_0;
+      if (m >= 0 && m < 10)
+         setMethod(m);
+      else if (key == Qt::Key_Space)
+         toggleRunning();
    }
    void setMethod(int m) {
       if (m >= 1 && m <= painters.size())
          painter = painters[m-1];
+      update();
+   }
+   void toggleRunning() {
+      if (timer.isActive())
+         timer.stop();
+      else {
+         timer.start(10, this);
+         el.start();
+      }
    }
    Q_SIGNAL void hasImage(const QImage &);
 };
@@ -326,7 +339,7 @@ int main(int argc, char *argv[])
    Demo demo(std::move(src).convertToFormat(QImage::Format_ARGB32_Premultiplied));
    Display disp;
 
-   QObject::connect(&disp, &Display::reqMethod, &demo, &Demo::setMethod);
+   QObject::connect(&disp, &Display::hasKey, &demo, &Demo::onKey);
    QObject::connect(&demo, &Demo::hasImage, &disp, &Display::setImage);
    disp.setOverlay(makeOverlay());
    disp.show();
