@@ -19,7 +19,9 @@ typedef struct VIRTUAL_6502
    // address of read callback function for special addresses
    void (*special_read)(void);
    // effective address (valid during a callback)
-   int special_ea;
+   unsigned char *special_ea;
+   // effective address space address (valid during a callback)
+   int special_eai() const { return special_ea - address_space; }
    // data value (valid during a callback)
    int special_value;
    // initial value for PC (0x0000->0xFFFF)

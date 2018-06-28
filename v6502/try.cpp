@@ -156,9 +156,9 @@ void SpecialWrite()
 {
    if (false)
       printf("** Special write M[%04X]=%02X **\n",
-             asm_6502_info->special_ea,
+             asm_6502_info->special_eai(),
              asm_6502_info->special_value);
-   if (asm_6502_info->special_ea==0xC010)
+   if (asm_6502_info->special_eai()==0xC010)
    {
       curchar&=0x7F;
    }
@@ -168,15 +168,14 @@ void SpecialRead()
 {
    if (false) {
       printf("** Special read M[%04X] **\n",
-             asm_6502_info->special_ea);
-      asm_6502_info->special_value=
-            asm_6502_info->address_space[asm_6502_info->special_ea];
+             asm_6502_info->special_eai());
+      asm_6502_info->special_value=*asm_6502_info->special_ea;
    }
-   if (asm_6502_info->special_ea==0xC000)
+   if (asm_6502_info->special_eai()==0xC000)
    {
       asm_6502_info->special_value=curchar;
    }
-   else if (asm_6502_info->special_ea==0xC010)
+   else if (asm_6502_info->special_eai()==0xC010)
    {
       curchar&=0x7F;
    }
