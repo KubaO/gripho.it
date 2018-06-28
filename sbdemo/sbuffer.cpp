@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 int lineStep(const QImage &img, int subWidth) {
    Q_ASSERT((img.bytesPerLine() * 8) % img.depth() == 0);
@@ -30,7 +31,7 @@ T *scanLine (QImage &dst, const QPoint pos) {
 template <typename T = int>
 class ZBuffer {
    int m_width, m_height, m_lineLength;
-   QVector<T> m_buf;
+   std::vector<T> m_buf;
 public:
    using value_type = T;
    static T defaultZ() { return std::numeric_limits<T>::max(); }
@@ -46,7 +47,7 @@ public:
       return m_lineLength - subWidth;
    }
    void clear() {
-      m_buf.fill(defaultZ());
+      std::fill(m_buf.begin(), m_buf.end(), defaultZ());
    }
 };
 
