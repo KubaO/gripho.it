@@ -35,16 +35,12 @@ class ZBuffer {
 public:
    using value_type = T;
    static T defaultZ() { return std::numeric_limits<T>::max(); }
-   explicit ZBuffer(int width, int height, int lineLength, T value = defaultZ()) :
-      m_width(width), m_height(height), m_lineLength(lineLength),
+   explicit ZBuffer(const QImage &s, T value = defaultZ()) :
+      m_width(s.width()), m_height(s.height()),
+      m_lineLength(s.bytesPerLine()*8/s.depth()),
       m_buf(m_lineLength*m_height, value) {}
-   explicit ZBuffer(int width, int height, T value = defaultZ()) :
-      ZBuffer(width, height, width, value) {}
    inline T *scanLine(const QPoint pos) {
       return m_buf.data() + m_lineLength * pos.y() + pos.x();
-   }
-   inline int lineStep(int subWidth) const {
-      return m_lineLength - subWidth;
    }
    void clear() {
       std::fill(m_buf.begin(), m_buf.end(), defaultZ());
@@ -100,15 +96,15 @@ public:
 };
 
 class ZBufPainter : public ImagePainter {
-   ZBuffer<quint8> zbuf{dst.width(), dst.height()};
+   ZBuffer<quint8> zbuf{dst};
    int z;
    void draw(const QRect &dstRect, const QRect &srcRect) override {
+      Q_ASSERT(z < std::numeric_limits<decltype(zbuf)::value_type>::max());
       auto *sp = scanLine(src, srcRect.topLeft());
       auto *dp = scanLine(dst, dstRect.topLeft());
       auto *zp = zbuf.scanLine(dstRect.topLeft());
       const int sStep = lineStep(src, srcRect.width());
       const int dStep = lineStep(dst, dstRect.width());
-      const int zStep = zbuf.lineStep(dstRect.width());
       for (int i = dstRect.height(); i; i--) {
          for (int j = dstRect.width(); j; j--) {
             if (*zp > z) {
@@ -117,7 +113,7 @@ class ZBufPainter : public ImagePainter {
             }
             sp++; zp++; dp++; 
          }
-         sp += sStep; dp += dStep; zp += zStep;
+         sp += sStep; dp += dStep; zp += dStep; //zbuf has same layout as target image
       }
       ++z;
    }
